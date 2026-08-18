@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0ea5e9"/>
+      <stop offset="1" stop-color="#0284c7"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#g)"/>
+  <path fill="#ffffff" d="M300 150h-44v-14a30 30 0 0 0-30-30h-40a30 30 0 0 0-30 30v14h-44a34 34 0 0 0-34 34v168a34 34 0 0 0 34 34h188a34 34 0 0 0 34-34V184a34 34 0 0 0-34-34zm-118-14a4 4 0 0 1 4-4h40a4 4 0 0 1 4 4v14h-48z"/>
+  <g fill="#0ea5e9">
+    <circle cx="256" cy="268" r="60" fill="#ffffff"/>
+    <text x="256" y="292" font-family="-apple-system, Arial, sans-serif" font-size="70" font-weight="800" text-anchor="middle" fill="#0284c7">€</text>
+  </g>
+  <path fill="#7dd3fc" d="M384 300a56 56 0 1 1-.2 0zm-56 20a36 36 0 1 0 .1 0z"/>
+  <text x="384" y="368" font-family="-apple-system, Arial, sans-serif" font-size="46" font-weight="800" text-anchor="middle" fill="#0284c7">$</text>
+</svg>

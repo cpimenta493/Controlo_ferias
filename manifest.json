@@ -1,0 +1,20 @@
+{
+  "name": "Controlo de Gastos nas Férias",
+  "short_name": "Férias",
+  "description": "Regista e controla os teus gastos de férias — offline e em qualquer dispositivo.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1220",
+  "theme_color": "#0ea5e9",
+  "lang": "pt",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

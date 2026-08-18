@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0ea5e9" />
+  <meta name="description" content="Controlo de gastos nas férias — simples, offline e em qualquer dispositivo." />
+  <title>Férias · Controlo de Gastos</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Cabeçalho -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="icon-btn" id="menuTripBtn" title="Mudar de viagem" aria-label="Mudar de viagem">
+          <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M22 16v-2l-8.5-5V3.5A1.5 1.5 0 0 0 12 2a1.5 1.5 0 0 0-1.5 1.5V9L2 14v2l8.5-2.5V19L8 20.5V22l4-1 4 1v-1.5L13.5 19v-5.5L22 16z"/></svg>
+        </button>
+        <div class="trip-heading">
+          <span class="trip-name" id="tripNameLabel">As minhas férias</span>
+          <span class="trip-sub" id="tripDatesLabel">—</span>
+        </div>
+      </div>
+      <div class="topbar-right">
+        <button class="icon-btn" id="themeBtn" title="Tema claro/escuro" aria-label="Alternar tema">
+          <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-5.4-5.4c0-1.81.89-3.42 2.26-4.4C12.92 3.04 12.46 3 12 3z"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- Conteúdo por separadores -->
+    <main class="content">
+      <!-- Painel -->
+      <section class="tab-panel active" id="tab-painel">
+        <div class="budget-hero card">
+          <div class="ring-wrap">
+            <svg class="ring" viewBox="0 0 120 120" width="132" height="132">
+              <circle class="ring-bg" cx="60" cy="60" r="52" />
+              <circle class="ring-fg" id="budgetRing" cx="60" cy="60" r="52" />
+            </svg>
+            <div class="ring-center">
+              <span class="ring-pct" id="budgetPct">0%</span>
+              <span class="ring-lbl">do orçamento</span>
+            </div>
+          </div>
+          <div class="budget-info">
+            <div class="budget-row">
+              <span class="muted">Gasto</span>
+              <strong id="spentLabel">0</strong>
+            </div>
+            <div class="budget-row">
+              <span class="muted">Orçamento</span>
+              <button class="link-btn" id="editBudgetBtn"><span id="budgetLabel">definir</span></button>
+            </div>
+            <div class="budget-row">
+              <span class="muted">Disponível</span>
+              <strong id="remainLabel" class="ok">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <div class="stat-grid">
+          <div class="card stat">
+            <span class="stat-val" id="statCount">0</span>
+            <span class="stat-lbl">Despesas</span>
+          </div>
+          <div class="card stat">
+            <span class="stat-val" id="statDaily">0</span>
+            <span class="stat-lbl">Média / dia</span>
+          </div>
+          <div class="card stat">
+            <span class="stat-val" id="statDays">0</span>
+            <span class="stat-lbl">Dias de viagem</span>
+          </div>
+          <div class="card stat">
+            <span class="stat-val" id="statTopCat">—</span>
+            <span class="stat-lbl">Maior categoria</span>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Por categoria</h3>
+            <span class="muted small" id="catTotalLabel"></span>
+          </div>
+          <div class="donut-wrap">
+            <canvas id="donutChart" width="220" height="220"></canvas>
+            <ul class="legend" id="catLegend"></ul>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h3>Gastos por dia</h3>
+          </div>
+          <canvas id="barChart" width="600" height="200"></canvas>
+        </div>
+
+        <div class="card" id="settleCard" hidden>
+          <div class="card-head">
+            <h3>Acerto de contas</h3>
+            <span class="muted small">quem deve a quem</span>
+          </div>
+          <ul class="settle-list" id="settleList"></ul>
+        </div>
+      </section>
+
+      <!-- Despesas -->
+      <section class="tab-panel" id="tab-despesas">
+        <div class="filter-bar">
+          <input type="search" id="searchInput" placeholder="Procurar despesa…" />
+          <select id="filterCat">
+            <option value="">Todas as categorias</option>
+          </select>
+        </div>
+        <ul class="expense-list" id="expenseList"></ul>
+        <div class="empty" id="expenseEmpty">
+          <p>Ainda não há despesas.</p>
+          <p class="muted">Toca no <strong>+</strong> para adicionar a primeira.</p>
+        </div>
+      </section>
+
+      <!-- Viagens -->
+      <section class="tab-panel" id="tab-viagens">
+        <div class="card-head section-head">
+          <h3>As minhas viagens</h3>
+          <button class="btn-sm" id="newTripBtn">+ Nova</button>
+        </div>
+        <ul class="trip-list" id="tripList"></ul>
+
+        <div class="card">
+          <div class="card-head"><h3>Pessoas na viagem</h3></div>
+          <p class="muted small">Adiciona quem partilha as despesas para calcular o acerto de contas.</p>
+          <div class="people-input">
+            <input type="text" id="personInput" placeholder="Nome da pessoa" />
+            <button class="btn-sm" id="addPersonBtn">Adicionar</button>
+          </div>
+          <ul class="people-list" id="peopleList"></ul>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Dados</h3></div>
+          <div class="data-actions">
+            <button class="btn-outline" id="exportCsvBtn">Exportar CSV</button>
+            <button class="btn-outline" id="exportJsonBtn">Cópia de segurança</button>
+            <label class="btn-outline file-label">
+              Importar
+              <input type="file" id="importInput" accept="application/json" hidden />
+            </label>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Botão flutuante -->
+    <button class="fab" id="addExpenseBtn" aria-label="Adicionar despesa">
+      <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M11 5h2v6h6v2h-6v6h-2v-6H5v-2h6z"/></svg>
+    </button>
+
+    <!-- Navegação inferior -->
+    <nav class="tabbar">
+      <button class="tab-btn active" data-tab="painel">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
+        <span>Painel</span>
+      </button>
+      <button class="tab-btn" data-tab="despesas">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h12v2H3v-2z"/></svg>
+        <span>Despesas</span>
+      </button>
+      <button class="tab-btn" data-tab="viagens">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M20 8h-3V6a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v2H4a2 2 0 0 0-2 2v9h20v-9a2 2 0 0 0-2-2zM9 6h6v2H9V6z"/></svg>
+        <span>Viagens</span>
+      </button>
+    </nav>
+  </div>
+
+  <!-- Modal: despesa -->
+  <div class="modal-backdrop" id="expenseModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2 id="expenseModalTitle">Nova despesa</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="expenseForm">
+        <input type="hidden" id="expenseId" />
+        <label class="fld">
+          <span>Valor</span>
+          <div class="amount-input">
+            <input type="number" id="expenseAmount" inputmode="decimal" step="0.01" min="0" placeholder="0,00" required />
+            <span class="cur-badge" id="curBadge">€</span>
+          </div>
+        </label>
+
+        <div class="cat-picker" id="catPicker"></div>
+
+        <label class="fld">
+          <span>Descrição</span>
+          <input type="text" id="expenseDesc" placeholder="ex: Jantar na praia" />
+        </label>
+
+        <div class="fld-row">
+          <label class="fld">
+            <span>Data</span>
+            <input type="date" id="expenseDate" required />
+          </label>
+          <label class="fld" id="paidByWrap" hidden>
+            <span>Pago por</span>
+            <select id="expensePaidBy"></select>
+          </label>
+        </div>
+
+        <div class="fld" id="splitWrap" hidden>
+          <span class="fld-lbl">Dividir entre</span>
+          <div class="split-people" id="splitPeople"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="deleteExpenseBtn" hidden>Eliminar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: viagem -->
+  <div class="modal-backdrop" id="tripModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2 id="tripModalTitle">Nova viagem</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="tripForm">
+        <input type="hidden" id="tripId" />
+        <label class="fld">
+          <span>Nome da viagem</span>
+          <input type="text" id="tripNameInput" placeholder="ex: Algarve 2026" required />
+        </label>
+        <div class="fld-row">
+          <label class="fld">
+            <span>Início</span>
+            <input type="date" id="tripStart" />
+          </label>
+          <label class="fld">
+            <span>Fim</span>
+            <input type="date" id="tripEnd" />
+          </label>
+        </div>
+        <div class="fld-row">
+          <label class="fld">
+            <span>Orçamento</span>
+            <input type="number" id="tripBudget" inputmode="decimal" step="0.01" min="0" placeholder="opcional" />
+          </label>
+          <label class="fld">
+            <span>Moeda</span>
+            <select id="tripCurrency">
+              <option value="EUR">€ Euro</option>
+              <option value="USD">$ Dólar</option>
+              <option value="GBP">£ Libra</option>
+              <option value="BRL">R$ Real</option>
+              <option value="CHF">CHF Franco</option>
+              <option value="JPY">¥ Iene</option>
+            </select>
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="deleteTripBtn" hidden>Eliminar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: orçamento rápido -->
+  <div class="modal-backdrop" id="budgetModal" hidden>
+    <div class="modal sheet small">
+      <div class="modal-head">
+        <h2>Orçamento</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="budgetForm">
+        <label class="fld">
+          <span>Orçamento total para esta viagem</span>
+          <input type="number" id="budgetInput" inputmode="decimal" step="0.01" min="0" placeholder="0,00" />
+        </label>
+        <div class="modal-actions">
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
