@@ -9,6 +9,7 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -184,8 +185,8 @@
         <label class="fld">
           <span>Local</span>
           <div class="loc-input">
-            <input type="text" id="expenseLoc" placeholder="ex: Restaurante X, Faro" />
-            <button type="button" class="loc-btn" id="locBtn" title="Usar a minha localização">📍</button>
+            <input type="text" id="expenseLoc" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="mapPickBtn" title="Escolher no mapa">🗺️</button>
           </div>
           <a class="loc-link" id="locLink" target="_blank" rel="noopener" hidden>Ver no mapa ↗</a>
         </label>
@@ -258,7 +259,29 @@
     </div>
   </div>
 
+  <!-- Modal: escolher local no mapa -->
+  <div class="modal-backdrop" id="mapModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2>Escolher local</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <div class="map-search">
+        <input type="search" id="mapSearch" placeholder="Procurar sítio (ex: Praia da Rocha)" />
+        <button type="button" class="btn-sm" id="mapSearchBtn">Procurar</button>
+      </div>
+      <div id="mapPick" class="map-pick"></div>
+      <p class="muted small map-hint" id="mapHint">Toca no mapa para marcar o local.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="mapClearBtn">Limpar</button>
+        <button type="button" class="btn-primary" id="mapConfirmBtn">Confirmar local</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" hidden></div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
   <!-- Firebase (sincronização na nuvem). Se estiver offline ou sem
        configuração, a app funciona à mesma só neste dispositivo. -->

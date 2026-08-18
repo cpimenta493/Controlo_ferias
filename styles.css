@@ -197,6 +197,21 @@ body { overscroll-behavior-y: none; }
   color: var(--primary); font-weight: 700; text-decoration: none;
 }
 
+/* Mapa (escolher local) */
+.map-search { display: flex; gap: 8px; margin-bottom: 10px; }
+.map-search input {
+  flex: 1; min-width: 0; padding: 12px 14px; border-radius: 12px;
+  border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.95rem;
+}
+.map-search .btn-sm { flex-shrink: 0; }
+.map-pick {
+  width: 100%; height: 320px; border-radius: 14px; overflow: hidden;
+  border: 1px solid var(--border); z-index: 1;
+}
+.map-hint { margin: 10px 2px 14px; min-height: 1.1em; }
+.pin-icon { font-size: 26px; line-height: 1; text-align: center; background: none; border: none; }
+.leaflet-container { font: inherit; }
+
 .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
 .empty p { margin: 6px 0; }
 

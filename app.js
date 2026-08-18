@@ -504,32 +504,74 @@
     else { link.hidden = true; }
   }
 
-  function useCurrentLocation() {
-    const btn = $('#locBtn');
-    if (!navigator.geolocation) { toast('GPS não disponível neste dispositivo'); return; }
-    btn.textContent = '…';
-    btn.disabled = true;
-    navigator.geolocation.getCurrentPosition(pos => {
-      const { latitude, longitude } = pos.coords;
-      selectedLoc = { name: $('#expenseLoc').value.trim(), lat: +latitude.toFixed(6), lng: +longitude.toFixed(6) };
-      updateLocLink();
-      toast('Localização apanhada 📍');
-      // Tenta obter o nome do sítio (OpenStreetMap, grátis) — opcional
-      fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&accept-language=pt`)
+  // Escolher local tocando no mapa (Leaflet + OpenStreetMap)
+  let pickMap = null, pickMarker = null, pickLoc = null;
+
+  function prettyName(d) {
+    const a = (d && d.address) || {};
+    const parts = [a.amenity || a.shop || a.tourism || a.building || a.road,
+                   a.city || a.town || a.village || a.municipality];
+    return parts.filter(Boolean).join(', ') || (d && d.display_name) || '';
+  }
+
+  function placePin(lat, lng) {
+    const icon = L.divIcon({ className: 'pin-icon', html: '📍', iconSize: [32, 32], iconAnchor: [16, 30] });
+    if (pickMarker) pickMarker.setLatLng([lat, lng]);
+    else pickMarker = L.marker([lat, lng], { icon }).addTo(pickMap);
+  }
+
+  function setPick(lat, lng, name, doReverse) {
+    lat = +(+lat).toFixed(6); lng = +(+lng).toFixed(6);
+    pickLoc = { name: name || '', lat, lng };
+    placePin(lat, lng);
+    $('#mapHint').textContent = name || 'A obter o nome do local…';
+    if (doReverse && !name) {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&accept-language=pt`)
         .then(r => r.json())
-        .then(d => {
-          if ($('#expenseLoc').value.trim()) return; // não sobrepõe o que já escreveste
-          const a = d.address || {};
-          const parts = [a.amenity || a.shop || a.tourism || a.building || a.road, a.city || a.town || a.village || a.municipality];
-          const nice = parts.filter(Boolean).join(', ') || d.display_name;
-          if (nice) { $('#expenseLoc').value = nice; selectedLoc.name = nice; updateLocLink(); }
-        })
-        .catch(() => {})
-        .finally(() => { btn.textContent = '📍'; btn.disabled = false; });
-    }, err => {
-      btn.textContent = '📍'; btn.disabled = false;
-      toast(err.code === 1 ? 'Permissão de localização negada' : 'Não foi possível obter a localização');
-    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+        .then(d => { pickLoc.name = prettyName(d); $('#mapHint').textContent = pickLoc.name || 'Local marcado 📍'; })
+        .catch(() => { $('#mapHint').textContent = 'Local marcado 📍'; });
+    }
+  }
+
+  function openMapPicker() {
+    if (typeof L === 'undefined') { toast('Mapa indisponível (sem ligação)'); return; }
+    showModal('#mapModal');
+    pickLoc = selectedLoc ? { ...selectedLoc } : null;
+    setTimeout(() => {
+      if (!pickMap) {
+        pickMap = L.map('mapPick', { zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '© OpenStreetMap'
+        }).addTo(pickMap);
+        pickMap.on('click', (ev) => setPick(ev.latlng.lat, ev.latlng.lng, null, true));
+      }
+      pickMap.invalidateSize();
+      if (pickLoc && pickLoc.lat != null) {
+        pickMap.setView([pickLoc.lat, pickLoc.lng], 15);
+        placePin(pickLoc.lat, pickLoc.lng);
+        $('#mapHint').textContent = pickLoc.name || 'Local marcado 📍';
+      } else {
+        if (pickMarker) { pickMap.removeLayer(pickMarker); pickMarker = null; }
+        pickMap.setView([39.5, -8.0], 6); // Portugal por defeito
+        $('#mapHint').textContent = 'Toca no mapa para marcar o local.';
+      }
+    }, 250);
+  }
+
+  function searchMapPlace() {
+    const q = $('#mapSearch').value.trim();
+    if (!q || !pickMap) return;
+    $('#mapHint').textContent = 'A procurar…';
+    fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=pt&limit=1`)
+      .then(r => r.json())
+      .then(list => {
+        if (!list.length) { $('#mapHint').textContent = 'Não encontrei esse sítio 🤔'; return; }
+        const it = list[0];
+        const name = it.display_name.split(',').slice(0, 2).join(',').trim();
+        pickMap.setView([+it.lat, +it.lon], 16);
+        setPick(it.lat, it.lon, name, false);
+      })
+      .catch(() => { $('#mapHint').textContent = 'Falha na procura 😕'; });
   }
 
   function buildLocation() {
@@ -663,10 +705,25 @@
   });
 
   $('#addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
-  $('#locBtn').addEventListener('click', useCurrentLocation);
   $('#expenseLoc').addEventListener('input', () => {
     if (selectedLoc) selectedLoc.name = $('#expenseLoc').value.trim();
     updateLocLink();
+  });
+  $('#mapPickBtn').addEventListener('click', openMapPicker);
+  $('#mapSearchBtn').addEventListener('click', searchMapPlace);
+  $('#mapSearch').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); searchMapPlace(); }
+  });
+  $('#mapClearBtn').addEventListener('click', () => {
+    pickLoc = null;
+    if (pickMarker && pickMap) { pickMap.removeLayer(pickMarker); pickMarker = null; }
+    $('#mapHint').textContent = 'Toca no mapa para marcar o local.';
+  });
+  $('#mapConfirmBtn').addEventListener('click', () => {
+    selectedLoc = pickLoc ? { ...pickLoc } : null;
+    $('#expenseLoc').value = selectedLoc ? (selectedLoc.name || '') : '';
+    updateLocLink();
+    closeModal('#mapModal');
   });
 
   // ==================================================================
@@ -846,7 +903,11 @@
   //  MODAIS: abrir/fechar
   // ==================================================================
   function showModal(sel) { $(sel).hidden = false; document.body.style.overflow = 'hidden'; }
-  function closeModal(sel) { $(sel).hidden = true; document.body.style.overflow = ''; }
+  function closeModal(sel) {
+    $(sel).hidden = true;
+    // só liberta o scroll do fundo se não houver outro pop-up aberto
+    if (!document.querySelector('.modal-backdrop:not([hidden])')) document.body.style.overflow = '';
+  }
   $$('.modal-backdrop').forEach(bd => {
     bd.addEventListener('click', (e) => {
       if (e.target === bd || e.target.closest('[data-close]')) closeModal('#' + bd.id);
