@@ -421,6 +421,8 @@
   // ==================================================================
   //  DESPESAS (lista)
   // ==================================================================
+  const collapsedDays = new Set();   // dias recolhidos (por data)
+
   function renderExpenses() {
     populateCatFilter();
     const term = ($('#searchInput').value || '').toLowerCase();
@@ -439,25 +441,63 @@
     if (exps.length === 0) { empty.hidden = false; return; }
     empty.hidden = true;
 
-    exps.forEach(e => {
-      const c = catById(e.category);
-      const li = document.createElement('li');
-      const locHtml = (e.location && (e.location.name || e.location.lat != null))
-        ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
-        : '';
-      li.innerHTML = `
-        <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
-        <div class="exp-body">
-          <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
-          <div class="exp-meta">${prettyDate(e.date)} · ${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
-          ${locHtml}
-        </div>
-        <div class="exp-amt">${fmt(e.amount)}</div>`;
-      li.addEventListener('click', () => openExpenseModal(e));
-      const locEl = li.querySelector('.exp-loc');
-      if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
-      list.appendChild(li);
+    // Agrupar por dia (mais recente primeiro)
+    const byDay = {};
+    exps.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+    const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
+
+    days.forEach(day => {
+      const items = byDay[day];
+      const dayTotal = items.reduce((s, e) => s + Number(e.amount), 0);
+      const collapsed = collapsedDays.has(day);
+
+      const head = document.createElement('li');
+      head.className = 'day-head' + (collapsed ? ' collapsed' : '');
+      head.innerHTML = `
+        <span class="day-title">${dayLabel(day)}</span>
+        <span class="day-sum">${items.length} · <strong>${fmt(dayTotal)}</strong>
+          <span class="chev" aria-hidden="true">▾</span></span>`;
+      head.addEventListener('click', () => {
+        if (collapsedDays.has(day)) collapsedDays.delete(day);
+        else collapsedDays.add(day);
+        renderExpenses();
+      });
+      list.appendChild(head);
+
+      if (!collapsed) items.forEach(e => list.appendChild(renderExpenseItem(e)));
     });
+  }
+
+  function renderExpenseItem(e) {
+    const c = catById(e.category);
+    const li = document.createElement('li');
+    li.className = 'exp-item';
+    const locHtml = (e.location && (e.location.name || e.location.lat != null))
+      ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
+      : '';
+    li.innerHTML = `
+      <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
+      <div class="exp-body">
+        <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
+        <div class="exp-meta">${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
+        ${locHtml}
+      </div>
+      <div class="exp-amt">${fmt(e.amount)}</div>`;
+    li.addEventListener('click', () => openExpenseModal(e));
+    const locEl = li.querySelector('.exp-loc');
+    if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
+    return li;
+  }
+
+  // Etiqueta amigável do dia (Hoje / Ontem / sex, 15 ago)
+  function dayLabel(iso) {
+    const today = todayStr();
+    const yst = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    if (iso === today) return 'Hoje';
+    if (iso === yst) return 'Ontem';
+    const d = new Date(iso + 'T00:00:00');
+    const s = d.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' });
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
   function populateCatFilter() {
