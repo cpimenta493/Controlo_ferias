@@ -65,6 +65,14 @@ body { overscroll-behavior-y: none; }
   box-shadow: var(--shadow);
 }
 .topbar-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.topbar-right { display: flex; align-items: center; gap: 10px; }
+.sync-badge {
+  font-size: 0.68rem; font-weight: 700; white-space: nowrap;
+  background: rgba(255,255,255,0.18); color: #fff;
+  padding: 5px 9px; border-radius: 20px;
+}
+.sync-badge.on { background: rgba(255,255,255,0.30); }
+@media (max-width: 420px) { .sync-badge { display: none; } }
 .trip-heading { display: flex; flex-direction: column; min-width: 0; }
 .trip-name { font-weight: 700; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 52vw; }
 .trip-sub { font-size: 0.78rem; opacity: 0.85; }

@@ -49,6 +49,104 @@
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+  // ================================================================
+  //  SINCRONIZAÇÃO NA NUVEM (Firebase Firestore) — opcional
+  //  Se não estiver configurado ou estiver offline, a app continua
+  //  a funcionar apenas com os dados locais (localStorage).
+  // ================================================================
+  const cloud = { on: false, db: null, seeded: false };
+
+  function cloudConfigured() {
+    const c = window.FERIAS_FIREBASE;
+    return !!(c && typeof firebase !== 'undefined' && c.apiKey &&
+              !String(c.apiKey).startsWith('COLA_'));
+  }
+
+  function setSyncBadge(mode) {
+    const b = $('#syncBadge');
+    if (!b) return;
+    b.hidden = false;
+    if (mode === 'sync') { b.textContent = '☁ sincronizado'; b.className = 'sync-badge on'; }
+    else { b.textContent = '⌂ só neste dispositivo'; b.className = 'sync-badge'; }
+  }
+
+  function initCloud() {
+    if (!cloudConfigured()) { setSyncBadge('local'); return; }
+    try {
+      firebase.initializeApp(window.FERIAS_FIREBASE);
+      cloud.db = firebase.firestore();
+      cloud.on = true;
+      cloud.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      setSyncBadge('sync');
+      subscribeCloud();
+    } catch (e) {
+      console.warn('Firebase indisponível:', e);
+      cloud.on = false;
+      setSyncBadge('local');
+    }
+  }
+
+  function subscribeCloud() {
+    cloud.db.collection('trips').onSnapshot(snap => {
+      const trips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (trips.length === 0 && !cloud.seeded) {
+        cloud.seeded = true;
+        seedCloudFromLocal();   // primeira utilização: envia o que já existe localmente
+        return;
+      }
+      cloud.seeded = true;
+      if (trips.length) state.trips = trips;
+      if (!state.trips.find(t => t.id === state.activeTrip)) {
+        state.activeTrip = state.trips[0] ? state.trips[0].id : null;
+      }
+      save();
+      refreshAll();
+    }, err => console.warn('trips onSnapshot:', err));
+
+    cloud.db.collection('expenses').onSnapshot(snap => {
+      state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      save();
+      refreshAll();
+    }, err => console.warn('expenses onSnapshot:', err));
+  }
+
+  function seedCloudFromLocal() {
+    const batch = cloud.db.batch();
+    (state.trips || []).forEach(t => {
+      const { id, ...data } = t;
+      batch.set(cloud.db.collection('trips').doc(id), data);
+    });
+    (state.expenses || []).forEach(e => {
+      const { id, ...data } = e;
+      batch.set(cloud.db.collection('expenses').doc(id), data);
+    });
+    batch.commit().catch(err => console.warn('seed inicial:', err));
+  }
+
+  // Escritas na nuvem (sem efeito quando a sincronização está desligada)
+  function pushTrip(trip) {
+    if (!cloud.on) return;
+    const { id, ...data } = trip;
+    cloud.db.collection('trips').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function pushExpense(exp) {
+    if (!cloud.on) return;
+    const { id, ...data } = exp;
+    cloud.db.collection('expenses').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function delTripCloud(id) {
+    if (!cloud.on) return;
+    cloud.db.collection('trips').doc(id).delete().catch(() => {});
+    state.expenses.filter(e => e.tripId === id).forEach(e =>
+      cloud.db.collection('expenses').doc(e.id).delete().catch(() => {}));
+  }
+  function delExpenseCloud(id) {
+    if (cloud.on) cloud.db.collection('expenses').doc(id).delete().catch(() => {});
+  }
+  function pushAllCloud() {
+    if (cloud.on) seedCloudFromLocal();
+  }
+
   const activeTrip = () => state.trips.find(t => t.id === state.activeTrip) || state.trips[0];
   const tripExpenses = () => state.expenses.filter(e => e.tripId === state.activeTrip);
 
@@ -469,9 +567,12 @@
     if (id) {
       const e = state.expenses.find(x => x.id === id);
       Object.assign(e, data);
+      pushExpense(e);
       toast('Despesa atualizada ✅');
     } else {
-      state.expenses.push({ id: uid(), tripId: trip.id, createdAt: Date.now(), ...data });
+      const exp = { id: uid(), tripId: trip.id, createdAt: Date.now(), ...data };
+      state.expenses.push(exp);
+      pushExpense(exp);
       toast('Despesa adicionada 🎉');
     }
     save();
@@ -483,6 +584,7 @@
     const id = $('#expenseId').value;
     if (!id) return;
     if (!confirm('Eliminar esta despesa?')) return;
+    delExpenseCloud(id);
     state.expenses = state.expenses.filter(e => e.id !== id);
     save();
     closeModal('#expenseModal');
@@ -530,6 +632,7 @@
       chip.innerHTML = `${escapeHtml(p)} <button data-p="${escapeAttr(p)}" aria-label="Remover">✕</button>`;
       chip.querySelector('button').addEventListener('click', () => {
         trip.people = trip.people.filter(x => x !== p);
+        pushTrip(trip);
         save(); renderPeople();
       });
       list.appendChild(chip);
@@ -546,6 +649,7 @@
     trip.people = trip.people || [];
     if (trip.people.includes(name)) { toast('Essa pessoa já existe'); return; }
     trip.people.push(name);
+    pushTrip(trip);
     inp.value = '';
     save(); renderPeople();
   }
@@ -577,11 +681,13 @@
     if (id) {
       const t = state.trips.find(x => x.id === id);
       Object.assign(t, data);
+      pushTrip(t);
       toast('Viagem atualizada ✅');
     } else {
       const t = { id: uid(), people: [], ...data };
       state.trips.push(t);
       state.activeTrip = t.id;
+      pushTrip(t);
       toast('Viagem criada 🧳');
     }
     save();
@@ -594,6 +700,7 @@
     const id = $('#tripId').value;
     if (!id || state.trips.length <= 1) return;
     if (!confirm('Eliminar esta viagem e todas as suas despesas?')) return;
+    delTripCloud(id);
     state.trips = state.trips.filter(t => t.id !== id);
     state.expenses = state.expenses.filter(e => e.tripId !== id);
     if (state.activeTrip === id) state.activeTrip = state.trips[0].id;
@@ -640,6 +747,7 @@
         state = data;
         if (!state.theme) state.theme = 'light';
         save(); applyTheme(); refreshAll();
+        pushAllCloud();
         toast('Dados importados ✅');
       } catch (e) { toast('Ficheiro inválido 😕'); }
     };
@@ -689,6 +797,7 @@
   // ==================================================================
   applyTheme();
   renderDashboard();
+  initCloud();
 
   // Service worker (offline)
   if ('serviceWorker' in navigator) {

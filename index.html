@@ -25,6 +25,7 @@
         </div>
       </div>
       <div class="topbar-right">
+        <span class="sync-badge" id="syncBadge" title="Estado da sincronização" hidden></span>
         <button class="icon-btn" id="themeBtn" title="Tema claro/escuro" aria-label="Alternar tema">
           <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-5.4-5.4c0-1.81.89-3.42 2.26-4.4C12.92 3.04 12.46 3 12 3z"/></svg>
         </button>
@@ -250,6 +251,11 @@
 
   <div class="toast" id="toast" hidden></div>
 
+  <!-- Firebase (sincronização na nuvem). Se estiver offline ou sem
+       configuração, a app funciona à mesma só neste dispositivo. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

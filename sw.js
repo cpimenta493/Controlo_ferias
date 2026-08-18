@@ -1,10 +1,11 @@
 /* Service Worker — funcionamento offline */
-const CACHE = 'ferias-gastos-v2';
+const CACHE = 'ferias-gastos-v3';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './firebase-config.js',
   './manifest.json',
   './icon.svg'
 ];
@@ -23,6 +24,9 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  // Só tratamos pedidos do próprio site. Tudo o resto (ex.: Firebase,
+  // Google) passa direto para a rede sem passar pela cache.
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request).then(cached => {
       const network = fetch(e.request).then(res => {
