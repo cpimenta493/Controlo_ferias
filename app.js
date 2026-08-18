@@ -976,10 +976,19 @@
   renderDashboard();
   initCloud();
 
-  // Service worker (offline)
+  // Service worker (offline) + atualização automática
   if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || refreshing) return;  // não recarrega na 1ª instalação
+      refreshing = true;
+      location.reload();                         // versão nova pronta → aplica
+    });
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => reg.update())
+        .catch(() => {});
     });
   }
 })();

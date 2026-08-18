@@ -1,5 +1,7 @@
-/* Service Worker — funcionamento offline */
-const CACHE = 'ferias-gastos-v6';
+/* Service Worker — funcionamento offline
+   Estratégia: REDE PRIMEIRO (quando há internet, mostra sempre a versão
+   mais recente); a cache serve apenas de reserva quando estás offline. */
+const CACHE = 'ferias-gastos-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -28,15 +30,16 @@ self.addEventListener('fetch', (e) => {
   // Google) passa direto para a rede sem passar pela cache.
   if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
-    caches.match(e.request).then(cached => {
-      const network = fetch(e.request).then(res => {
-        if (res && res.status === 200 && res.type === 'basic') {
-          const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(e.request, copy));
-        }
-        return res;
-      }).catch(() => cached);
-      return cached || network;
-    })
+    fetch(e.request).then(res => {
+      // Guarda uma cópia atualizada para uso offline
+      if (res && res.status === 200 && res.type === 'basic') {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put(e.request, copy));
+      }
+      return res;
+    }).catch(() =>
+      // Sem rede: usa a versão em cache (ou o index como reserva)
+      caches.match(e.request).then(c => c || caches.match('./index.html'))
+    )
   );
 });
