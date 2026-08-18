@@ -177,6 +177,25 @@ body { overscroll-behavior-y: none; }
 .exp-desc { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .exp-meta { font-size: 0.78rem; color: var(--muted); }
 .exp-amt { font-weight: 800; font-size: 1.02rem; white-space: nowrap; }
+.exp-loc {
+  display: inline-block; margin-top: 4px; font-size: 0.76rem;
+  color: var(--primary); text-decoration: none; font-weight: 600;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.exp-loc:active { opacity: .6; }
+
+/* Campo de localização no formulário */
+.loc-input { display: flex; gap: 8px; }
+.loc-input input { flex: 1; min-width: 0; }
+.loc-btn {
+  flex-shrink: 0; width: 48px; border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface-2); font-size: 1.2rem; cursor: pointer;
+}
+.loc-btn:disabled { opacity: .6; }
+.loc-link {
+  display: inline-block; margin-top: 8px; font-size: 0.82rem;
+  color: var(--primary); font-weight: 700; text-decoration: none;
+}
 
 .empty { text-align: center; padding: 48px 20px; color: var(--muted); }
 .empty p { margin: 6px 0; }

@@ -1,5 +1,5 @@
 /* Service Worker — funcionamento offline */
-const CACHE = 'ferias-gastos-v3';
+const CACHE = 'ferias-gastos-v4';
 const ASSETS = [
   './',
   './index.html',

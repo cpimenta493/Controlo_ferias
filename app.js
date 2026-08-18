@@ -442,14 +442,20 @@
     exps.forEach(e => {
       const c = catById(e.category);
       const li = document.createElement('li');
+      const locHtml = (e.location && (e.location.name || e.location.lat != null))
+        ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
+        : '';
       li.innerHTML = `
         <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
         <div class="exp-body">
           <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
           <div class="exp-meta">${prettyDate(e.date)} · ${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
+          ${locHtml}
         </div>
         <div class="exp-amt">${fmt(e.amount)}</div>`;
       li.addEventListener('click', () => openExpenseModal(e));
+      const locEl = li.querySelector('.exp-loc');
+      if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
       list.appendChild(li);
     });
   }
@@ -477,6 +483,64 @@
   // ==================================================================
   let selectedCat = 'comida';
   let selectedSplit = [];
+  let selectedLoc = null;   // { name, lat, lng }
+
+  // ---------- Localização (GPS + Google Maps) ----------
+  function mapUrl(loc) {
+    if (!loc) return '';
+    if (loc.lat != null && loc.lng != null)
+      return `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
+    if (loc.name)
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.name)}`;
+    return '';
+  }
+
+  function updateLocLink() {
+    const link = $('#locLink');
+    const name = $('#expenseLoc').value.trim();
+    const loc = (name || selectedLoc) ? { name, lat: selectedLoc && selectedLoc.lat, lng: selectedLoc && selectedLoc.lng } : null;
+    const url = mapUrl(loc);
+    if (url) { link.href = url; link.hidden = false; }
+    else { link.hidden = true; }
+  }
+
+  function useCurrentLocation() {
+    const btn = $('#locBtn');
+    if (!navigator.geolocation) { toast('GPS não disponível neste dispositivo'); return; }
+    btn.textContent = '…';
+    btn.disabled = true;
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      selectedLoc = { name: $('#expenseLoc').value.trim(), lat: +latitude.toFixed(6), lng: +longitude.toFixed(6) };
+      updateLocLink();
+      toast('Localização apanhada 📍');
+      // Tenta obter o nome do sítio (OpenStreetMap, grátis) — opcional
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${latitude}&lon=${longitude}&zoom=18&accept-language=pt`)
+        .then(r => r.json())
+        .then(d => {
+          if ($('#expenseLoc').value.trim()) return; // não sobrepõe o que já escreveste
+          const a = d.address || {};
+          const parts = [a.amenity || a.shop || a.tourism || a.building || a.road, a.city || a.town || a.village || a.municipality];
+          const nice = parts.filter(Boolean).join(', ') || d.display_name;
+          if (nice) { $('#expenseLoc').value = nice; selectedLoc.name = nice; updateLocLink(); }
+        })
+        .catch(() => {})
+        .finally(() => { btn.textContent = '📍'; btn.disabled = false; });
+    }, err => {
+      btn.textContent = '📍'; btn.disabled = false;
+      toast(err.code === 1 ? 'Permissão de localização negada' : 'Não foi possível obter a localização');
+    }, { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 });
+  }
+
+  function buildLocation() {
+    const name = $('#expenseLoc').value.trim();
+    if (!name && !selectedLoc) return null;
+    return {
+      name: name || (selectedLoc && selectedLoc.name) || '',
+      lat: selectedLoc && selectedLoc.lat != null ? selectedLoc.lat : null,
+      lng: selectedLoc && selectedLoc.lng != null ? selectedLoc.lng : null
+    };
+  }
 
   function buildCatPicker() {
     const wrap = $('#catPicker');
@@ -508,6 +572,11 @@
     $('#expenseDate').value = isEdit ? exp.date : todayStr();
     selectedCat = isEdit ? exp.category : 'comida';
     buildCatPicker();
+
+    // localização
+    selectedLoc = isEdit && exp.location ? { ...exp.location } : null;
+    $('#expenseLoc').value = isEdit && exp.location ? (exp.location.name || '') : '';
+    updateLocLink();
 
     // pessoas / divisão
     const people = trip.people || [];
@@ -562,7 +631,8 @@
       category: selectedCat,
       date: $('#expenseDate').value || todayStr(),
       paidBy: (trip.people || []).length ? $('#expensePaidBy').value : '',
-      splitAmong: (trip.people || []).length ? selectedSplit.slice() : []
+      splitAmong: (trip.people || []).length ? selectedSplit.slice() : [],
+      location: buildLocation()
     };
     if (id) {
       const e = state.expenses.find(x => x.id === id);
@@ -593,6 +663,11 @@
   });
 
   $('#addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
+  $('#locBtn').addEventListener('click', useCurrentLocation);
+  $('#expenseLoc').addEventListener('input', () => {
+    if (selectedLoc) selectedLoc.name = $('#expenseLoc').value.trim();
+    updateLocLink();
+  });
 
   // ==================================================================
   //  VIAGENS
@@ -717,12 +792,13 @@
     const exps = tripExpenses();
     if (exps.length === 0) { toast('Sem despesas para exportar'); return; }
     const trip = activeTrip();
-    const rows = [['Data', 'Categoria', 'Descrição', 'Valor', 'Moeda', 'Pago por', 'Dividido entre']];
+    const rows = [['Data', 'Categoria', 'Descrição', 'Valor', 'Moeda', 'Pago por', 'Dividido entre', 'Local', 'Mapa']];
     exps.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(e => {
       rows.push([
         e.date, catById(e.category).name, e.description || '',
         String(e.amount).replace('.', ','), trip.currency,
-        e.paidBy || '', (e.splitAmong || []).join(' / ')
+        e.paidBy || '', (e.splitAmong || []).join(' / '),
+        (e.location && e.location.name) || '', mapUrl(e.location)
       ]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
