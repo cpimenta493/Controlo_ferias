@@ -33,7 +33,7 @@
     const tripId = uid();
     return {
       trips: [{
-        id: tripId, name: 'As minhas férias', budget: 0,
+        id: tripId, name: 'As minhas férias',
         currency: 'EUR', start: '', end: '', people: []
       }],
       expenses: [],
@@ -125,22 +125,11 @@
       ? `${prettyDate(trip.start)} – ${prettyDate(trip.end)}`
       : `${exps.length} despesa(s)`;
 
-    // Orçamento
-    $('#spentLabel').textContent = fmt(total);
-    $('#budgetLabel').textContent = trip.budget > 0 ? fmt(trip.budget) : 'definir';
-    const remain = trip.budget - total;
-    const remainEl = $('#remainLabel');
-    remainEl.textContent = fmt(remain);
-    remainEl.className = remain < 0 ? 'over' : (remain < trip.budget * 0.15 ? 'warn' : 'ok');
-
-    const pct = trip.budget > 0 ? Math.min(total / trip.budget, 1.5) : 0;
-    const ring = $('#budgetRing');
-    const circ = 2 * Math.PI * 52;
-    ring.style.strokeDasharray = circ;
-    ring.style.strokeDashoffset = circ * (1 - Math.min(pct, 1));
-    ring.style.stroke = total > trip.budget && trip.budget > 0
-      ? 'var(--danger)' : (pct > 0.85 ? 'var(--warn)' : 'var(--primary)');
-    $('#budgetPct').textContent = trip.budget > 0 ? Math.round((total / trip.budget) * 100) + '%' : '—';
+    // Total gasto
+    $('#totalSpent').textContent = exps.length ? fmt(total) : fmt(0);
+    $('#totalSub').textContent = exps.length
+      ? `${exps.length} despesa${exps.length > 1 ? 's' : ''} registada${exps.length > 1 ? 's' : ''}`
+      : 'Sem despesas ainda';
 
     // Estatísticas
     $('#statCount').textContent = exps.length;
@@ -517,7 +506,7 @@
       li.innerHTML = `
         <div>
           <div class="t-name">${escapeHtml(t.name)} ${t.id === state.activeTrip ? '<span class="badge-active">ativa</span>' : ''}</div>
-          <div class="t-meta">${fmt(spent, t.currency)} gasto${t.budget > 0 ? ' · orç. ' + fmt(t.budget, t.currency) : ''}</div>
+          <div class="t-meta">${fmt(spent, t.currency)} gasto</div>
         </div>
         <button class="icon-btn" data-edit title="Editar">✎</button>`;
       li.addEventListener('click', (ev) => {
@@ -569,7 +558,6 @@
     $('#tripNameInput').value = isEdit ? trip.name : '';
     $('#tripStart').value = isEdit ? (trip.start || '') : '';
     $('#tripEnd').value = isEdit ? (trip.end || '') : '';
-    $('#tripBudget').value = isEdit && trip.budget ? trip.budget : '';
     $('#tripCurrency').value = isEdit ? trip.currency : 'EUR';
     showModal('#tripModal');
   }
@@ -584,7 +572,6 @@
       name: $('#tripNameInput').value.trim() || 'Viagem',
       start: $('#tripStart').value,
       end: $('#tripEnd').value,
-      budget: parseFloat($('#tripBudget').value) || 0,
       currency: $('#tripCurrency').value
     };
     if (id) {
@@ -614,21 +601,6 @@
     closeModal('#tripModal');
     refreshAll();
     toast('Viagem eliminada');
-  });
-
-  // ---------- Orçamento rápido ----------
-  $('#editBudgetBtn').addEventListener('click', () => {
-    $('#budgetInput').value = activeTrip().budget || '';
-    showModal('#budgetModal');
-    setTimeout(() => $('#budgetInput').focus(), 200);
-  });
-  $('#budgetForm').addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    activeTrip().budget = parseFloat($('#budgetInput').value) || 0;
-    save();
-    closeModal('#budgetModal');
-    renderDashboard();
-    toast('Orçamento guardado 💰');
   });
 
   // ==================================================================

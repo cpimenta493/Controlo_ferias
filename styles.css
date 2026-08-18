@@ -109,26 +109,16 @@ body { overscroll-behavior-y: none; }
 .warn { color: var(--warn); }
 .over { color: var(--danger); }
 
-/* Budget hero */
-.budget-hero { display: flex; align-items: center; gap: 20px; }
-.ring-wrap { position: relative; width: 132px; height: 132px; flex-shrink: 0; }
-.ring { transform: rotate(-90deg); }
-.ring-bg { fill: none; stroke: var(--surface-2); stroke-width: 12; }
-.ring-fg {
-  fill: none; stroke: var(--primary); stroke-width: 12; stroke-linecap: round;
-  stroke-dasharray: 327; stroke-dashoffset: 327;
-  transition: stroke-dashoffset .8s cubic-bezier(.2,.8,.2,1), stroke .3s ease;
+/* Total hero */
+.total-hero {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  text-align: center; padding: 26px 18px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-d));
+  border: none; color: #fff;
 }
-.ring-center {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 2px;
-}
-.ring-pct { font-size: 1.5rem; font-weight: 800; }
-.ring-lbl { font-size: 0.7rem; color: var(--muted); }
-.budget-info { flex: 1; display: flex; flex-direction: column; gap: 10px; }
-.budget-row { display: flex; align-items: center; justify-content: space-between; font-size: 0.95rem; }
-.budget-row strong { font-size: 1.05rem; }
-.link-btn { background: none; border: none; color: var(--primary); font-weight: 700; cursor: pointer; font-size: 1rem; padding: 0; }
+.total-lbl { font-size: 0.85rem; opacity: 0.9; font-weight: 600; letter-spacing: .3px; }
+.total-val { font-size: 2.4rem; font-weight: 800; line-height: 1.1; }
+.total-sub { font-size: 0.82rem; opacity: 0.9; }
 
 /* Stat grid */
 .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }

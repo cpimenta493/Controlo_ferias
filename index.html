@@ -35,31 +35,10 @@
     <main class="content">
       <!-- Painel -->
       <section class="tab-panel active" id="tab-painel">
-        <div class="budget-hero card">
-          <div class="ring-wrap">
-            <svg class="ring" viewBox="0 0 120 120" width="132" height="132">
-              <circle class="ring-bg" cx="60" cy="60" r="52" />
-              <circle class="ring-fg" id="budgetRing" cx="60" cy="60" r="52" />
-            </svg>
-            <div class="ring-center">
-              <span class="ring-pct" id="budgetPct">0%</span>
-              <span class="ring-lbl">do orçamento</span>
-            </div>
-          </div>
-          <div class="budget-info">
-            <div class="budget-row">
-              <span class="muted">Gasto</span>
-              <strong id="spentLabel">0</strong>
-            </div>
-            <div class="budget-row">
-              <span class="muted">Orçamento</span>
-              <button class="link-btn" id="editBudgetBtn"><span id="budgetLabel">definir</span></button>
-            </div>
-            <div class="budget-row">
-              <span class="muted">Disponível</span>
-              <strong id="remainLabel" class="ok">0</strong>
-            </div>
-          </div>
+        <div class="total-hero card">
+          <span class="total-lbl">Total gasto</span>
+          <span class="total-val" id="totalSpent">—</span>
+          <span class="total-sub" id="totalSub">Sem despesas ainda</span>
         </div>
 
         <div class="stat-grid">
@@ -250,10 +229,6 @@
         </div>
         <div class="fld-row">
           <label class="fld">
-            <span>Orçamento</span>
-            <input type="number" id="tripBudget" inputmode="decimal" step="0.01" min="0" placeholder="opcional" />
-          </label>
-          <label class="fld">
             <span>Moeda</span>
             <select id="tripCurrency">
               <option value="EUR">€ Euro</option>
@@ -267,25 +242,6 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn-outline danger" id="deleteTripBtn" hidden>Eliminar</button>
-          <button type="submit" class="btn-primary">Guardar</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
-  <!-- Modal: orçamento rápido -->
-  <div class="modal-backdrop" id="budgetModal" hidden>
-    <div class="modal sheet small">
-      <div class="modal-head">
-        <h2>Orçamento</h2>
-        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
-      </div>
-      <form id="budgetForm">
-        <label class="fld">
-          <span>Orçamento total para esta viagem</span>
-          <input type="number" id="budgetInput" inputmode="decimal" step="0.01" min="0" placeholder="0,00" />
-        </label>
-        <div class="modal-actions">
           <button type="submit" class="btn-primary">Guardar</button>
         </div>
       </form>
