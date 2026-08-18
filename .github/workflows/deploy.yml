@@ -1,0 +1,51 @@
+name: Deploy para GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - claude/vacation-expense-tracker-u0mqfj
+  workflow_dispatch:
+
+# Permissões necessárias para publicar no Pages
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Permite apenas um deploy de cada vez
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Pages (ativa automaticamente se necessário)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Preparar ficheiros do site
+        run: |
+          mkdir -p _site
+          cp index.html styles.css app.js manifest.json sw.js icon.svg _site/
+          # Fallback: usa a app como página 404 (rotas SPA)
+          cp index.html _site/404.html
+
+      - name: Carregar artefacto
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4
