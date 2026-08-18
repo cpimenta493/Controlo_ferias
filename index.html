@@ -97,7 +97,7 @@
             <option value="">Todas as categorias</option>
           </select>
         </div>
-        <ul class="expense-list" id="expenseList"></ul>
+        <div class="expense-list" id="expenseList"></div>
         <div class="empty" id="expenseEmpty">
           <p>Ainda não há despesas.</p>
           <p class="muted">Toca no <strong>+</strong> para adicionar a primeira.</p>
@@ -282,6 +282,7 @@
   <div class="toast" id="toast" hidden></div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 
   <!-- Firebase (sincronização na nuvem). Se estiver offline ou sem
        configuração, a app funciona à mesma só neste dispositivo. -->

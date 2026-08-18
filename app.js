@@ -441,17 +441,21 @@
     if (exps.length === 0) { empty.hidden = false; return; }
     empty.hidden = true;
 
+    // Arrastar para reordenar só faz sentido na vista completa (sem filtros)
+    const canSort = !term && !catFilter;
+
     // Agrupar por dia (mais recente primeiro)
     const byDay = {};
     exps.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
     const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
+    const orderKey = (e) => (e.order != null ? e.order : (e.createdAt || 0));
 
     days.forEach(day => {
-      const items = byDay[day];
+      const items = byDay[day].sort((a, b) => orderKey(a) - orderKey(b));
       const dayTotal = items.reduce((s, e) => s + Number(e.amount), 0);
       const collapsed = collapsedDays.has(day);
 
-      const head = document.createElement('li');
+      const head = document.createElement('div');
       head.className = 'day-head' + (collapsed ? ' collapsed' : '');
       head.innerHTML = `
         <span class="day-title">${dayLabel(day)}</span>
@@ -464,18 +468,50 @@
       });
       list.appendChild(head);
 
-      if (!collapsed) items.forEach(e => list.appendChild(renderExpenseItem(e)));
+      if (collapsed) return;
+
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      group.dataset.day = day;
+      items.forEach(e => group.appendChild(renderExpenseItem(e, canSort)));
+      list.appendChild(group);
+
+      if (canSort && window.Sortable) {
+        new Sortable(group, {
+          handle: '.drag-handle',
+          animation: 150,
+          delayOnTouchOnly: true,
+          delay: 120,
+          ghostClass: 'exp-ghost',
+          chosenClass: 'exp-chosen',
+          onEnd: () => saveDayOrder(group)
+        });
+      }
     });
   }
 
-  function renderExpenseItem(e) {
+  // Guarda a ordem manual das despesas de um dia (após arrastar)
+  function saveDayOrder(group) {
+    const ids = Array.from(group.children).map(el => el.dataset.id);
+    ids.forEach((id, i) => {
+      const e = state.expenses.find(x => x.id === id);
+      if (e) { e.order = i; pushExpense(e); }
+    });
+    save();
+    toast('Ordem guardada ✅');
+  }
+
+  function renderExpenseItem(e, canSort) {
     const c = catById(e.category);
-    const li = document.createElement('li');
-    li.className = 'exp-item';
+    const item = document.createElement('div');
+    item.className = 'exp-item';
+    item.dataset.id = e.id;
     const locHtml = (e.location && (e.location.name || e.location.lat != null))
       ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
       : '';
-    li.innerHTML = `
+    const handle = canSort ? `<div class="drag-handle" title="Arrastar">⠿</div>` : '';
+    item.innerHTML = `
+      ${handle}
       <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
       <div class="exp-body">
         <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
@@ -483,10 +519,12 @@
         ${locHtml}
       </div>
       <div class="exp-amt">${fmt(e.amount)}</div>`;
-    li.addEventListener('click', () => openExpenseModal(e));
-    const locEl = li.querySelector('.exp-loc');
+    item.addEventListener('click', () => openExpenseModal(e));
+    const locEl = item.querySelector('.exp-loc');
     if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
-    return li;
+    const h = item.querySelector('.drag-handle');
+    if (h) h.addEventListener('click', (ev) => ev.stopPropagation());
+    return item;
   }
 
   // Etiqueta amigável do dia (Hoje / Ontem / sex, 15 ago)

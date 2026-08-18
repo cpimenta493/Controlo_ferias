@@ -1,7 +1,7 @@
 /* Service Worker — funcionamento offline
    Estratégia: REDE PRIMEIRO (quando há internet, mostra sempre a versão
    mais recente); a cache serve apenas de reserva quando estás offline. */
-const CACHE = 'ferias-gastos-v7';
+const CACHE = 'ferias-gastos-v8';
 const ASSETS = [
   './',
   './index.html',
