@@ -1,21 +1,18 @@
 // ============================================================
-//  SINCRONIZAÇÃO NA NUVEM (Firebase) — opcional
+//  SINCRONIZAÇÃO NA NUVEM (Firebase) — configurado ✅
 // ------------------------------------------------------------
-//  • Enquanto isto NÃO estiver preenchido, a app funciona só
-//    neste dispositivo (os dados ficam guardados localmente).
-//  • Para sincronizar entre telemóvel e computador e partilhar
-//    os gastos com outras pessoas, cria um projeto Firebase
-//    (grátis) e cola aqui os dados. Passos completos no README.
+//  Estes valores ligam a app ao teu projeto Firebase, para os
+//  gastos ficarem partilhados e sincronizados entre dispositivos.
 //
-//  Onde obter estes valores:
+//  Onde obter/alterar:
 //    console.firebase.google.com → o teu projeto →
 //    ⚙ Definições do projeto → "As tuas apps" → app Web → SDK.
 // ============================================================
 window.FERIAS_FIREBASE = {
-  apiKey: "COLA_AQUI_A_TUA_API_KEY",
-  authDomain: "COLA_AQUI.firebaseapp.com",
-  projectId: "COLA_AQUI_O_PROJECT_ID",
-  storageBucket: "COLA_AQUI.appspot.com",
-  messagingSenderId: "COLA_AQUI",
-  appId: "COLA_AQUI"
+  apiKey: "AIzaSyCaKYf9_xm1Ovx-0A_4dpFQwMnvZe3Kvzo",
+  authDomain: "ferias-f2b1e.firebaseapp.com",
+  projectId: "ferias-f2b1e",
+  storageBucket: "ferias-f2b1e.firebasestorage.app",
+  messagingSenderId: "204707256753",
+  appId: "1:204707256753:web:1986e20bdb6d329958c590"
 };
