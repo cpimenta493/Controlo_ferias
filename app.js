@@ -196,6 +196,92 @@
     if (tab === 'painel') renderDashboard();
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
+    if (tab === 'mapa') renderMap();
+  }
+
+  // ==================================================================
+  //  MAPA DA VIAGEM
+  // ==================================================================
+  let tripMap = null, tripMarkers = null;
+
+  function renderMap() {
+    const exps = tripExpenses();
+    const geo = exps.filter(e => e.location && e.location.lat != null && e.location.lng != null);
+    const mapEl = $('#tripMap');
+
+    // Lista "por local" (agrupa por nome, mesmo sem coordenadas)
+    renderByPlace(exps);
+
+    if (typeof L === 'undefined') { mapEl.innerHTML = '<p class="muted small" style="padding:16px">Mapa indisponível (sem ligação).</p>'; return; }
+
+    $('#mapEmpty').hidden = geo.length > 0;
+
+    setTimeout(() => {
+      if (!tripMap) {
+        tripMap = L.map('tripMap', { zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '© OpenStreetMap'
+        }).addTo(tripMap);
+        tripMarkers = L.layerGroup().addTo(tripMap);
+      }
+      tripMap.invalidateSize();
+      tripMarkers.clearLayers();
+
+      if (geo.length === 0) { tripMap.setView([39.5, -8.0], 5); return; }
+
+      const bounds = [];
+      geo.forEach(e => {
+        const c = catById(e.category);
+        const icon = L.divIcon({
+          className: 'map-pin',
+          html: `<div class="map-pin-in" style="background:${c.color}"><span>${c.emoji}</span></div>`,
+          iconSize: [34, 34], iconAnchor: [17, 32], popupAnchor: [0, -30]
+        });
+        const m = L.marker([e.location.lat, e.location.lng], { icon });
+        m.bindPopup(
+          `<strong>${escapeHtml(e.description || c.name)}</strong><br>` +
+          `${c.emoji} ${c.name} · ${fmt(e.amount)}<br>` +
+          `<span style="color:#889">${prettyDate(e.date)}</span><br>` +
+          `<a href="${mapUrl(e.location)}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`
+        );
+        tripMarkers.addLayer(m);
+        bounds.push([e.location.lat, e.location.lng]);
+      });
+      if (bounds.length === 1) tripMap.setView(bounds[0], 15);
+      else tripMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    }, 200);
+  }
+
+  function renderByPlace(exps) {
+    const withName = exps.filter(e => e.location && e.location.name);
+    const groups = {};
+    withName.forEach(e => {
+      const key = e.location.name;
+      if (!groups[key]) groups[key] = { name: key, total: 0, count: 0, loc: e.location };
+      groups[key].total += Number(e.amount);
+      groups[key].count++;
+    });
+    const arr = Object.values(groups).sort((a, b) => b.total - a.total);
+    const card = $('#byPlaceCard');
+    const listEl = $('#placeList');
+    if (arr.length === 0) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#byPlaceCount').textContent = `${arr.length} ${arr.length > 1 ? 'locais' : 'local'}`;
+    listEl.innerHTML = '';
+    arr.forEach(g => {
+      const li = document.createElement('li');
+      li.className = 'place-row';
+      li.innerHTML = `
+        <span class="place-name">📍 ${escapeHtml(g.name)}</span>
+        <span class="place-info">${g.count} · <strong>${fmt(g.total)}</strong></span>`;
+      if (g.loc.lat != null) {
+        li.style.cursor = 'pointer';
+        li.addEventListener('click', () => {
+          if (tripMap) { tripMap.setView([g.loc.lat, g.loc.lng], 16); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        });
+      }
+      listEl.appendChild(li);
+    });
   }
 
   // ---------- Tema ----------
@@ -999,6 +1085,7 @@
     if (tab === 'painel') renderDashboard();
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
+    if (tab === 'mapa') renderMap();
     // manter o painel sempre coerente em background
     if (tab !== 'painel') renderDashboard();
   }
