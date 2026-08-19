@@ -386,13 +386,14 @@
         return orderKey(a) - orderKey(b);
       });
       const doneCount = items.filter(p => p.done).length;
+      const dayCost = items.reduce((s, p) => s + (Number(p.cost) || 0), 0);
       const collapsed = collapsedPlanDays.has(day);
 
       const head = document.createElement('div');
       head.className = 'day-head' + (collapsed ? ' collapsed' : '');
       head.innerHTML = `
         <span class="day-title">${dayLabel(day)}</span>
-        <span class="day-sum">${doneCount}/${items.length} feito
+        <span class="day-sum">${doneCount}/${items.length} feito${dayCost > 0 ? ' · ' + fmt(dayCost) : ''}
           <span class="chev" aria-hidden="true">▾</span></span>`;
       head.addEventListener('click', () => {
         if (collapsedPlanDays.has(day)) collapsedPlanDays.delete(day);
@@ -429,6 +430,7 @@
     const safeLink = p.link && /^https?:\/\//i.test(p.link) ? p.link : '';
     const linkHtml = safeLink ? `<a class="plan-link" href="${escapeAttr(safeLink)}" target="_blank" rel="noopener">🔗 Link</a>` : '';
     const noteHtml = p.note ? `<div class="plan-note">${escapeHtml(p.note)}</div>` : '';
+    const costHtml = p.cost > 0 ? `<div class="plan-cost">${fmt(p.cost)}</div>` : '';
     item.innerHTML = `
       <div class="drag-handle" title="Arrastar">⠿</div>
       <button type="button" class="plan-check" aria-label="Marcar como feito">${p.done ? '✅' : '⬜'}</button>
@@ -436,7 +438,8 @@
         <div class="plan-title">${p.time ? `<span class="plan-time">${escapeHtml(p.time)}</span> ` : ''}${t.emoji} ${escapeHtml(p.title)}</div>
         ${noteHtml}
         <div class="plan-meta">${[locHtml, linkHtml].filter(Boolean).join(' · ')}</div>
-      </div>`;
+      </div>
+      ${costHtml}`;
     item.querySelector('.plan-check').addEventListener('click', (ev) => {
       ev.stopPropagation();
       p.done = !p.done; pushPlan(p); save(); renderItinerary();
@@ -487,6 +490,8 @@
     $('#planTitle').value = isEdit ? (plan.title || '') : '';
     $('#planDate').value = isEdit ? plan.date : (activeTrip().start || todayStr());
     $('#planTime').value = isEdit ? (plan.time || '') : '';
+    $('#planCurBadge').textContent = CURRENCIES[activeTrip().currency] || '€';
+    $('#planCost').value = isEdit && plan.cost ? plan.cost : '';
     $('#planNote').value = isEdit ? (plan.note || '') : '';
     $('#planLink').value = isEdit ? (plan.link || '') : '';
     planSelLoc = isEdit && plan.location ? { ...plan.location } : null;
@@ -516,6 +521,7 @@
       title, type: selectedPlanType,
       date: $('#planDate').value || todayStr(),
       time: $('#planTime').value || '',
+      cost: Math.round((parseFloat($('#planCost').value) || 0) * 100) / 100,
       note: $('#planNote').value.trim(),
       link: $('#planLink').value.trim(),
       location: buildPlanLocation()
@@ -558,6 +564,7 @@
       description: p.title,
       category: PLAN_TO_CAT[p.type] || 'outros',
       date: p.date,
+      amount: p.cost > 0 ? p.cost : '',
       location: p.location ? { ...p.location } : null
     });
   });
@@ -1092,7 +1099,7 @@
     $('#expenseModalTitle').textContent = isEdit ? 'Editar despesa' : 'Nova despesa';
     $('#deleteExpenseBtn').hidden = !isEdit;
     $('#expenseId').value = isEdit ? exp.id : '';
-    $('#expenseAmount').value = isEdit ? exp.amount : '';
+    $('#expenseAmount').value = isEdit ? exp.amount : (pre.amount || '');
     $('#expenseDesc').value = isEdit ? (exp.description || '') : (pre.description || '');
     $('#expenseDate').value = isEdit ? exp.date : (pre.date || todayStr());
     selectedCat = isEdit ? exp.category : (pre.category || 'comida');

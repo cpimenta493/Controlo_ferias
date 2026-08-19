@@ -233,6 +233,8 @@ body { overscroll-behavior-y: none; }
 .plan-note { font-size: 0.83rem; color: var(--muted); margin-top: 3px; white-space: pre-wrap; }
 .plan-meta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 4px; }
 .plan-link { font-size: 0.78rem; color: var(--primary); font-weight: 600; text-decoration: none; }
+.plan-cost { flex-shrink: 0; font-weight: 800; font-size: 0.95rem; align-self: center; white-space: nowrap; }
+.amount-input.small input { font-size: 1.1rem; font-weight: 700; padding-right: 40px; }
 .fld textarea {
   padding: 13px 14px; border-radius: 12px; border: 1px solid var(--border);
   background: var(--surface); color: var(--text); font-size: 1rem;
