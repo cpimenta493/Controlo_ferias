@@ -104,6 +104,15 @@
         </div>
       </section>
 
+      <!-- Roteiro -->
+      <section class="tab-panel" id="tab-roteiro">
+        <div class="plan-list" id="planList"></div>
+        <div class="empty" id="planEmpty">
+          <p>Ainda não há nada no roteiro.</p>
+          <p class="muted">Toca no <strong>+</strong> para planear a primeira atividade.</p>
+        </div>
+      </section>
+
       <!-- Viagens -->
       <section class="tab-panel" id="tab-viagens">
         <div class="card-head section-head">
@@ -162,6 +171,10 @@
       <button class="tab-btn active" data-tab="painel">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         <span>Painel</span>
+      </button>
+      <button class="tab-btn" data-tab="roteiro">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 3L4 5v16l5-2 6 2 5-2V3l-5 2-6-2zm0 2.5l6 2v11l-6-2v-11z"/></svg>
+        <span>Roteiro</span>
       </button>
       <button class="tab-btn" data-tab="despesas">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h12v2H3v-2z"/></svg>
@@ -273,6 +286,60 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn-outline danger" id="deleteTripBtn" hidden>Eliminar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: atividade do roteiro -->
+  <div class="modal-backdrop" id="planModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2 id="planModalTitle">Nova atividade</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="planForm">
+        <input type="hidden" id="planId" />
+        <label class="fld">
+          <span>O quê?</span>
+          <input type="text" id="planTitle" placeholder="ex: Visita ao castelo" required />
+        </label>
+
+        <div class="cat-picker" id="planTypePicker"></div>
+
+        <div class="fld-row">
+          <label class="fld">
+            <span>Dia</span>
+            <input type="date" id="planDate" required />
+          </label>
+          <label class="fld">
+            <span>Hora (opcional)</span>
+            <input type="time" id="planTime" />
+          </label>
+        </div>
+
+        <label class="fld">
+          <span>Local</span>
+          <div class="loc-input">
+            <input type="text" id="planLoc" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="planMapBtn" title="Escolher no mapa">🗺️</button>
+          </div>
+          <a class="loc-link" id="planLocLink" target="_blank" rel="noopener" hidden>Ver no mapa ↗</a>
+        </label>
+
+        <label class="fld">
+          <span>Notas (opcional)</span>
+          <textarea id="planNote" rows="2" placeholder="ex: bilhetes já comprados"></textarea>
+        </label>
+
+        <label class="fld">
+          <span>Link (opcional)</span>
+          <input type="url" id="planLink" inputmode="url" placeholder="https://…" />
+        </label>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="deletePlanBtn" hidden>Eliminar</button>
           <button type="submit" class="btn-primary">Guardar</button>
         </div>
       </form>

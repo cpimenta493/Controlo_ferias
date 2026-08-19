@@ -21,13 +21,30 @@
   ];
   const catById = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 
+  // Tipos de atividade do roteiro
+  const PLAN_TYPES = [
+    { id: 'atividade',  name: 'Atividade',  emoji: '🎫' },
+    { id: 'comida',     name: 'Refeição',   emoji: '🍽️' },
+    { id: 'transporte', name: 'Transporte', emoji: '🚗' },
+    { id: 'voo',        name: 'Voo',        emoji: '✈️' },
+    { id: 'alojamento', name: 'Alojamento', emoji: '🏨' },
+    { id: 'passeio',    name: 'Passeio',    emoji: '🏞️' },
+    { id: 'compras',    name: 'Compras',    emoji: '🛍️' },
+    { id: 'outro',      name: 'Outro',      emoji: '📌' }
+  ];
+  const planType = (id) => PLAN_TYPES.find(t => t.id === id) || PLAN_TYPES[PLAN_TYPES.length - 1];
+
   // ---------- Estado ----------
   let state = load();
 
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (!s.plans) s.plans = [];   // compatibilidade com dados antigos
+        return s;
+      }
     } catch (e) { /* ignora */ }
     // Estado inicial
     const tripId = uid();
@@ -37,6 +54,7 @@
         currency: 'EUR', start: '', end: '', people: []
       }],
       expenses: [],
+      plans: [],
       activeTrip: tripId,
       theme: 'light'
     };
@@ -108,6 +126,12 @@
       save();
       refreshAll();
     }, err => console.warn('expenses onSnapshot:', err));
+
+    cloud.db.collection('plans').onSnapshot(snap => {
+      state.plans = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      save();
+      refreshAll();
+    }, err => console.warn('plans onSnapshot:', err));
   }
 
   function seedCloudFromLocal() {
@@ -119,6 +143,10 @@
     (state.expenses || []).forEach(e => {
       const { id, ...data } = e;
       batch.set(cloud.db.collection('expenses').doc(id), data);
+    });
+    (state.plans || []).forEach(p => {
+      const { id, ...data } = p;
+      batch.set(cloud.db.collection('plans').doc(id), data);
     });
     batch.commit().catch(err => console.warn('seed inicial:', err));
   }
@@ -139,9 +167,19 @@
     cloud.db.collection('trips').doc(id).delete().catch(() => {});
     state.expenses.filter(e => e.tripId === id).forEach(e =>
       cloud.db.collection('expenses').doc(e.id).delete().catch(() => {}));
+    (state.plans || []).filter(p => p.tripId === id).forEach(p =>
+      cloud.db.collection('plans').doc(p.id).delete().catch(() => {}));
   }
   function delExpenseCloud(id) {
     if (cloud.on) cloud.db.collection('expenses').doc(id).delete().catch(() => {});
+  }
+  function pushPlan(plan) {
+    if (!cloud.on) return;
+    const { id, ...data } = plan;
+    cloud.db.collection('plans').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function delPlanCloud(id) {
+    if (cloud.on) cloud.db.collection('plans').doc(id).delete().catch(() => {});
   }
   function pushAllCloud() {
     if (cloud.on) seedCloudFromLocal();
@@ -149,6 +187,7 @@
 
   const activeTrip = () => state.trips.find(t => t.id === state.activeTrip) || state.trips[0];
   const tripExpenses = () => state.expenses.filter(e => e.tripId === state.activeTrip);
+  const tripPlans = () => (state.plans || []).filter(p => p.tripId === state.activeTrip);
 
   // ---------- Helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -197,6 +236,7 @@
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
     if (tab === 'mapa') renderMap();
+    if (tab === 'roteiro') renderItinerary();
   }
 
   // ==================================================================
@@ -283,6 +323,189 @@
       listEl.appendChild(li);
     });
   }
+
+  // ==================================================================
+  //  ROTEIRO (itinerário)
+  // ==================================================================
+  const collapsedPlanDays = new Set();
+  let selectedPlanType = 'atividade';
+
+  function renderItinerary() {
+    const plans = tripPlans();
+    const list = $('#planList');
+    const empty = $('#planEmpty');
+    list.innerHTML = '';
+    if (plans.length === 0) { empty.hidden = false; return; }
+    empty.hidden = true;
+
+    const byDay = {};
+    plans.forEach(p => { (byDay[p.date] = byDay[p.date] || []).push(p); });
+    const days = Object.keys(byDay).sort((a, b) => a.localeCompare(b)); // cronológico
+    const orderKey = (p) => (p.order != null ? p.order : (p.createdAt || 0));
+
+    days.forEach(day => {
+      const items = byDay[day].sort((a, b) => {
+        const ta = a.time || '', tb = b.time || '';
+        if (ta && tb && ta !== tb) return ta.localeCompare(tb);
+        if (ta && !tb) return -1;
+        if (!ta && tb) return 1;
+        return orderKey(a) - orderKey(b);
+      });
+      const doneCount = items.filter(p => p.done).length;
+      const collapsed = collapsedPlanDays.has(day);
+
+      const head = document.createElement('div');
+      head.className = 'day-head' + (collapsed ? ' collapsed' : '');
+      head.innerHTML = `
+        <span class="day-title">${dayLabel(day)}</span>
+        <span class="day-sum">${doneCount}/${items.length} feito
+          <span class="chev" aria-hidden="true">▾</span></span>`;
+      head.addEventListener('click', () => {
+        if (collapsedPlanDays.has(day)) collapsedPlanDays.delete(day);
+        else collapsedPlanDays.add(day);
+        renderItinerary();
+      });
+      list.appendChild(head);
+      if (collapsed) return;
+
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      group.dataset.day = day;
+      items.forEach(p => group.appendChild(renderPlanItem(p)));
+      list.appendChild(group);
+
+      if (window.Sortable) {
+        new Sortable(group, {
+          handle: '.drag-handle', animation: 150,
+          delayOnTouchOnly: true, delay: 120,
+          ghostClass: 'exp-ghost', chosenClass: 'exp-chosen',
+          onEnd: () => savePlanOrder(group)
+        });
+      }
+    });
+  }
+
+  function renderPlanItem(p) {
+    const t = planType(p.type);
+    const item = document.createElement('div');
+    item.className = 'plan-item' + (p.done ? ' done' : '');
+    item.dataset.id = p.id;
+    const locHtml = (p.location && (p.location.name || p.location.lat != null))
+      ? `<a class="exp-loc" href="${mapUrl(p.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(p.location.name || 'Ver no mapa')}</a>` : '';
+    const safeLink = p.link && /^https?:\/\//i.test(p.link) ? p.link : '';
+    const linkHtml = safeLink ? `<a class="plan-link" href="${escapeAttr(safeLink)}" target="_blank" rel="noopener">🔗 Link</a>` : '';
+    const noteHtml = p.note ? `<div class="plan-note">${escapeHtml(p.note)}</div>` : '';
+    item.innerHTML = `
+      <div class="drag-handle" title="Arrastar">⠿</div>
+      <button type="button" class="plan-check" aria-label="Marcar como feito">${p.done ? '✅' : '⬜'}</button>
+      <div class="plan-body">
+        <div class="plan-title">${p.time ? `<span class="plan-time">${escapeHtml(p.time)}</span> ` : ''}${t.emoji} ${escapeHtml(p.title)}</div>
+        ${noteHtml}
+        <div class="plan-meta">${[locHtml, linkHtml].filter(Boolean).join(' · ')}</div>
+      </div>`;
+    item.querySelector('.plan-check').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      p.done = !p.done; pushPlan(p); save(); renderItinerary();
+    });
+    item.querySelector('.drag-handle').addEventListener('click', (ev) => ev.stopPropagation());
+    const locEl = item.querySelector('.exp-loc');
+    if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
+    const lk = item.querySelector('.plan-link');
+    if (lk) lk.addEventListener('click', (ev) => ev.stopPropagation());
+    item.addEventListener('click', () => openPlanModal(p));
+    return item;
+  }
+
+  function savePlanOrder(group) {
+    const ids = Array.from(group.children).map(el => el.dataset.id);
+    ids.forEach((id, i) => {
+      const p = (state.plans || []).find(x => x.id === id);
+      if (p) { p.order = i; pushPlan(p); }
+    });
+    save();
+    toast('Ordem guardada ✅');
+  }
+
+  function buildPlanTypePicker() {
+    const wrap = $('#planTypePicker');
+    wrap.innerHTML = '';
+    PLAN_TYPES.forEach(t => {
+      const div = document.createElement('div');
+      div.className = 'cat-opt' + (t.id === selectedPlanType ? ' selected' : '');
+      div.innerHTML = `<span class="c-emoji">${t.emoji}</span><span class="c-name">${t.name}</span>`;
+      div.addEventListener('click', () => {
+        selectedPlanType = t.id;
+        $$('#planTypePicker .cat-opt').forEach(o => o.classList.remove('selected'));
+        div.classList.add('selected');
+      });
+      wrap.appendChild(div);
+    });
+  }
+
+  function openPlanModal(plan) {
+    const isEdit = !!plan;
+    selectedPlanType = isEdit ? (plan.type || 'atividade') : 'atividade';
+    buildPlanTypePicker();
+    $('#planModalTitle').textContent = isEdit ? 'Editar atividade' : 'Nova atividade';
+    $('#deletePlanBtn').hidden = !isEdit;
+    $('#planId').value = isEdit ? plan.id : '';
+    $('#planTitle').value = isEdit ? (plan.title || '') : '';
+    $('#planDate').value = isEdit ? plan.date : (activeTrip().start || todayStr());
+    $('#planTime').value = isEdit ? (plan.time || '') : '';
+    $('#planNote').value = isEdit ? (plan.note || '') : '';
+    $('#planLink').value = isEdit ? (plan.link || '') : '';
+    planSelLoc = isEdit && plan.location ? { ...plan.location } : null;
+    $('#planLoc').value = isEdit && plan.location ? (plan.location.name || '') : '';
+    updatePlanLocLink();
+    showModal('#planModal');
+    setTimeout(() => $('#planTitle').focus(), 200);
+  }
+
+  function buildPlanLocation() {
+    const name = $('#planLoc').value.trim();
+    if (!name && !planSelLoc) return null;
+    return {
+      name: name || (planSelLoc && planSelLoc.name) || '',
+      lat: planSelLoc && planSelLoc.lat != null ? planSelLoc.lat : null,
+      lng: planSelLoc && planSelLoc.lng != null ? planSelLoc.lng : null
+    };
+  }
+
+  $('#planForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const title = $('#planTitle').value.trim();
+    if (!title) { toast('Escreve o que vais fazer'); return; }
+    const id = $('#planId').value;
+    const data = {
+      tripId: activeTrip().id,
+      title, type: selectedPlanType,
+      date: $('#planDate').value || todayStr(),
+      time: $('#planTime').value || '',
+      note: $('#planNote').value.trim(),
+      link: $('#planLink').value.trim(),
+      location: buildPlanLocation()
+    };
+    if (id) {
+      const p = state.plans.find(x => x.id === id);
+      Object.assign(p, data); pushPlan(p);
+      toast('Atividade atualizada ✅');
+    } else {
+      const p = { id: uid(), createdAt: Date.now(), done: false, ...data };
+      state.plans.push(p); pushPlan(p);
+      toast('Adicionado ao roteiro 🗺️');
+    }
+    save(); closeModal('#planModal'); refreshAll();
+  });
+
+  $('#deletePlanBtn').addEventListener('click', () => {
+    const id = $('#planId').value;
+    if (!id) return;
+    if (!confirm('Eliminar esta atividade?')) return;
+    delPlanCloud(id);
+    state.plans = state.plans.filter(p => p.id !== id);
+    save(); closeModal('#planModal'); refreshAll();
+    toast('Atividade eliminada');
+  });
 
   // ---------- Tema ----------
   function applyTheme() {
@@ -647,7 +870,9 @@
   // ==================================================================
   let selectedCat = 'comida';
   let selectedSplit = [];
-  let selectedLoc = null;   // { name, lat, lng }
+  let selectedLoc = null;   // localização da despesa { name, lat, lng }
+  let planSelLoc = null;    // localização da atividade do roteiro
+  let mapPickTarget = 'expense';  // para onde o seletor de mapa escreve
 
   // ---------- Localização (GPS + Google Maps) ----------
   function mapUrl(loc) {
@@ -663,6 +888,15 @@
     const link = $('#locLink');
     const name = $('#expenseLoc').value.trim();
     const loc = (name || selectedLoc) ? { name, lat: selectedLoc && selectedLoc.lat, lng: selectedLoc && selectedLoc.lng } : null;
+    const url = mapUrl(loc);
+    if (url) { link.href = url; link.hidden = false; }
+    else { link.hidden = true; }
+  }
+
+  function updatePlanLocLink() {
+    const link = $('#planLocLink');
+    const name = $('#planLoc').value.trim();
+    const loc = (name || planSelLoc) ? { name, lat: planSelLoc && planSelLoc.lat, lng: planSelLoc && planSelLoc.lng } : null;
     const url = mapUrl(loc);
     if (url) { link.href = url; link.hidden = false; }
     else { link.hidden = true; }
@@ -697,10 +931,12 @@
     }
   }
 
-  function openMapPicker() {
+  function openMapPicker(target) {
     if (typeof L === 'undefined') { toast('Mapa indisponível (sem ligação)'); return; }
+    mapPickTarget = target || 'expense';
     showModal('#mapModal');
-    pickLoc = selectedLoc ? { ...selectedLoc } : null;
+    const base = mapPickTarget === 'plan' ? planSelLoc : selectedLoc;
+    pickLoc = base ? { ...base } : null;
     setTimeout(() => {
       if (!pickMap) {
         pickMap = L.map('mapPick', { zoomControl: true });
@@ -868,12 +1104,21 @@
     toast('Despesa eliminada');
   });
 
-  $('#addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
+  $('#addExpenseBtn').addEventListener('click', () => {
+    const active = document.querySelector('.tab-btn.active');
+    if (active && active.dataset.tab === 'roteiro') openPlanModal(null);
+    else openExpenseModal(null);
+  });
   $('#expenseLoc').addEventListener('input', () => {
     if (selectedLoc) selectedLoc.name = $('#expenseLoc').value.trim();
     updateLocLink();
   });
-  $('#mapPickBtn').addEventListener('click', openMapPicker);
+  $('#mapPickBtn').addEventListener('click', () => openMapPicker('expense'));
+  $('#planMapBtn').addEventListener('click', () => openMapPicker('plan'));
+  $('#planLoc').addEventListener('input', () => {
+    if (planSelLoc) planSelLoc.name = $('#planLoc').value.trim();
+    updatePlanLocLink();
+  });
   $('#mapSearchBtn').addEventListener('click', searchMapPlace);
   $('#mapSearch').addEventListener('keydown', (e) => {
     if (e.key === 'Enter') { e.preventDefault(); searchMapPlace(); }
@@ -884,9 +1129,15 @@
     $('#mapHint').textContent = 'Toca no mapa para marcar o local.';
   });
   $('#mapConfirmBtn').addEventListener('click', () => {
-    selectedLoc = pickLoc ? { ...pickLoc } : null;
-    $('#expenseLoc').value = selectedLoc ? (selectedLoc.name || '') : '';
-    updateLocLink();
+    if (mapPickTarget === 'plan') {
+      planSelLoc = pickLoc ? { ...pickLoc } : null;
+      $('#planLoc').value = planSelLoc ? (planSelLoc.name || '') : '';
+      updatePlanLocLink();
+    } else {
+      selectedLoc = pickLoc ? { ...pickLoc } : null;
+      $('#expenseLoc').value = selectedLoc ? (selectedLoc.name || '') : '';
+      updateLocLink();
+    }
     closeModal('#mapModal');
   });
 
@@ -999,6 +1250,7 @@
     delTripCloud(id);
     state.trips = state.trips.filter(t => t.id !== id);
     state.expenses = state.expenses.filter(e => e.tripId !== id);
+    state.plans = (state.plans || []).filter(p => p.tripId !== id);
     if (state.activeTrip === id) state.activeTrip = state.trips[0].id;
     save();
     closeModal('#tripModal');
@@ -1086,6 +1338,7 @@
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
     if (tab === 'mapa') renderMap();
+    if (tab === 'roteiro') renderItinerary();
     // manter o painel sempre coerente em background
     if (tab !== 'painel') renderDashboard();
   }
