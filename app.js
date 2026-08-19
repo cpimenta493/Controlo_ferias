@@ -132,6 +132,15 @@
       save();
       refreshAll();
     }, err => console.warn('plans onSnapshot:', err));
+
+    cloud.db.collection('config').doc('app').onSnapshot(d => {
+      const h = d.exists ? (d.data().passHash || '') : '';
+      setPassHashLocal(h);   // sincroniza a palavra-passe entre dispositivos
+    }, err => console.warn('config onSnapshot:', err));
+  }
+
+  function pushPassHash(hash) {
+    if (cloud.on) cloud.db.collection('config').doc('app').set({ passHash: hash || '' }).catch(() => {});
   }
 
   function seedCloudFromLocal() {
@@ -1439,10 +1448,97 @@
   });
 
   // ==================================================================
+  //  BLOQUEIO POR PALAVRA-PASSE (bloqueio simples)
+  // ==================================================================
+  const LS_HASH = 'ferias_passhash';
+  const LS_UNLOCKED = 'ferias_unlocked';
+
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  const currentHash = () => localStorage.getItem(LS_HASH) || '';
+  const isUnlocked = () => localStorage.getItem(LS_UNLOCKED) === '1';
+
+  function setPassHashLocal(hash) {
+    if (hash) localStorage.setItem(LS_HASH, hash);
+    else { localStorage.removeItem(LS_HASH); localStorage.removeItem(LS_UNLOCKED); }
+    refreshLock();
+    updatePassStatus();
+  }
+  function refreshLock() {
+    if (currentHash() && !isUnlocked()) {
+      $('#lockScreen').hidden = false;
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => $('#lockInput').focus(), 200);
+    } else {
+      $('#lockScreen').hidden = true;
+      if (!document.querySelector('.modal-backdrop:not([hidden])')) document.body.style.overflow = '';
+    }
+  }
+  async function tryUnlock() {
+    const h = await sha256($('#lockInput').value);
+    if (h && h === currentHash()) {
+      localStorage.setItem(LS_UNLOCKED, '1');
+      $('#lockInput').value = '';
+      $('#lockError').hidden = true;
+      refreshLock();
+    } else {
+      $('#lockError').hidden = false;
+    }
+  }
+  $('#lockBtn').addEventListener('click', tryUnlock);
+  $('#lockInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryUnlock(); } });
+
+  function updatePassStatus() {
+    const el = $('#passStatus');
+    if (el) el.textContent = currentHash()
+      ? 'A app pede palavra-passe na primeira vez em cada dispositivo. 🔒'
+      : 'A app não pede palavra-passe.';
+  }
+  function openPassModal() {
+    const has = !!currentHash();
+    $('#passModalTitle').textContent = has ? 'Alterar palavra-passe' : 'Definir palavra-passe';
+    $('#passHint').textContent = has
+      ? 'Escreve a nova palavra-passe (substitui a atual em todos os dispositivos).'
+      : 'Define uma palavra-passe para entrar na app. Vai ser pedida a cada dispositivo na primeira vez.';
+    $('#passRemoveBtn').hidden = !has;
+    $('#passNew').value = '';
+    $('#passConfirm').value = '';
+    showModal('#passModal');
+    setTimeout(() => $('#passNew').focus(), 200);
+  }
+  $('#openPassBtn').addEventListener('click', openPassModal);
+
+  $('#passForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const n = $('#passNew').value, c = $('#passConfirm').value;
+    if (n.length < 3) { toast('Mínimo 3 caracteres'); return; }
+    if (n !== c) { toast('As palavras-passe não coincidem'); return; }
+    const h = await sha256(n);
+    localStorage.setItem(LS_HASH, h);
+    localStorage.setItem(LS_UNLOCKED, '1');   // este dispositivo fica desbloqueado
+    pushPassHash(h);
+    updatePassStatus();
+    closeModal('#passModal');
+    toast('Palavra-passe definida 🔒');
+  });
+
+  $('#passRemoveBtn').addEventListener('click', () => {
+    if (!confirm('Remover a palavra-passe? A app deixa de a pedir.')) return;
+    setPassHashLocal('');
+    pushPassHash('');
+    closeModal('#passModal');
+    toast('Palavra-passe removida');
+  });
+
+  // ==================================================================
   //  Arranque
   // ==================================================================
   applyTheme();
   renderDashboard();
+  refreshLock();
+  updatePassStatus();
   initCloud();
 
   // Service worker (offline) + atualização automática

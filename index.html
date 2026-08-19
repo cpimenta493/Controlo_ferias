@@ -18,6 +18,18 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Ecrã de bloqueio (palavra-passe) -->
+  <div class="lock-screen" id="lockScreen" hidden>
+    <div class="lock-box">
+      <div class="lock-icon">🔒</div>
+      <h2>Férias</h2>
+      <p class="muted" id="lockMsg">Introduz a palavra-passe</p>
+      <input type="password" id="lockInput" inputmode="text" autocomplete="off" placeholder="Palavra-passe" />
+      <button class="btn-primary" id="lockBtn">Entrar</button>
+      <p class="lock-error" id="lockError" hidden>Palavra-passe errada 🙈</p>
+    </div>
+  </div>
+
   <div id="app">
     <!-- Cabeçalho -->
     <header class="topbar">
@@ -135,6 +147,12 @@
             <button class="btn-sm" id="addPersonBtn">Adicionar</button>
           </div>
           <ul class="people-list" id="peopleList"></ul>
+        </div>
+
+        <div class="card">
+          <div class="card-head"><h3>Segurança</h3></div>
+          <p class="muted small" id="passStatus">A app não pede palavra-passe.</p>
+          <button class="btn-outline" id="openPassBtn">🔒 Palavra-passe de acesso</button>
         </div>
 
         <div class="card">
@@ -296,6 +314,31 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="btn-outline danger" id="deleteTripBtn" hidden>Eliminar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: palavra-passe -->
+  <div class="modal-backdrop" id="passModal" hidden>
+    <div class="modal sheet small">
+      <div class="modal-head">
+        <h2 id="passModalTitle">Palavra-passe</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="passForm">
+        <p class="muted small" id="passHint">Define uma palavra-passe para entrar na app. Vai ser pedida a cada dispositivo na primeira vez.</p>
+        <label class="fld">
+          <span>Nova palavra-passe</span>
+          <input type="password" id="passNew" autocomplete="new-password" placeholder="mínimo 3 caracteres" />
+        </label>
+        <label class="fld">
+          <span>Confirmar</span>
+          <input type="password" id="passConfirm" autocomplete="new-password" />
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="passRemoveBtn" hidden>Remover</button>
           <button type="submit" class="btn-primary">Guardar</button>
         </div>
       </form>

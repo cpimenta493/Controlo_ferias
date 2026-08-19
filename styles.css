@@ -443,6 +443,25 @@ body { overscroll-behavior-y: none; }
 .modal-actions .btn-outline { flex: 0 0 auto; }
 .modal-actions .btn-primary { flex: 1; }
 
+/* Ecrã de bloqueio */
+.lock-screen {
+  position: fixed; inset: 0; z-index: 100;
+  display: flex; align-items: center; justify-content: center; padding: 24px;
+  background: linear-gradient(135deg, var(--primary), var(--primary-d));
+}
+.lock-box {
+  background: var(--surface); border-radius: 22px; box-shadow: var(--shadow);
+  padding: 28px 24px; width: 100%; max-width: 340px; text-align: center;
+}
+.lock-icon { font-size: 2.4rem; }
+.lock-box h2 { margin: 8px 0 4px; }
+.lock-box input {
+  width: 100%; padding: 14px; margin: 16px 0 12px; text-align: center;
+  border-radius: 12px; border: 1px solid var(--border);
+  background: var(--surface); color: var(--text); font-size: 1.1rem;
+}
+.lock-error { color: var(--danger); font-size: 0.85rem; margin: 10px 0 0; }
+
 /* Toast */
 .toast {
   position: fixed; bottom: calc(90px + var(--safe-b)); left: 50%; transform: translateX(-50%);
