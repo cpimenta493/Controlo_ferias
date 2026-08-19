@@ -117,6 +117,17 @@ body { overscroll-behavior-y: none; }
 .warn { color: var(--warn); }
 .over { color: var(--danger); }
 
+/* Contagem decrescente para a viagem */
+.countdown {
+  border-radius: 14px; padding: 13px 16px; margin-bottom: 14px;
+  font-size: 0.98rem; text-align: center; border: 1px solid var(--border);
+  background: var(--surface); box-shadow: var(--shadow);
+}
+.countdown strong { font-size: 1.15rem; }
+.countdown.soon { background: color-mix(in srgb, var(--primary) 14%, var(--surface)); border-color: var(--primary); color: var(--text); }
+.countdown.now { background: color-mix(in srgb, var(--ok) 16%, var(--surface)); border-color: var(--ok); }
+.countdown.done { color: var(--muted); }
+
 /* Total hero */
 .total-hero {
   display: flex; flex-direction: column; align-items: center; gap: 6px;

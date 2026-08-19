@@ -577,11 +577,38 @@
   // ==================================================================
   //  PAINEL
   // ==================================================================
+  function renderCountdown(trip) {
+    const el = $('#countdown');
+    if (!trip.start) { el.hidden = true; return; }
+    const msDay = 86400000;
+    const d0 = new Date(todayStr() + 'T00:00:00');
+    const ds = new Date(trip.start + 'T00:00:00');
+    const de = new Date((trip.end || trip.start) + 'T00:00:00');
+    const toStart = Math.round((ds - d0) / msDay);
+    el.hidden = false;
+    if (toStart > 1) {
+      el.innerHTML = `✈️ Faltam <strong>${toStart}</strong> dias para a viagem!`;
+      el.className = 'countdown soon';
+    } else if (toStart === 1) {
+      el.innerHTML = `✈️ É já <strong>amanhã</strong>! 🎉`;
+      el.className = 'countdown soon';
+    } else if (d0 <= de) {
+      const dayNum = Math.round((d0 - ds) / msDay) + 1;
+      const total = Math.round((de - ds) / msDay) + 1;
+      el.innerHTML = `🎉 Estás na viagem! Dia <strong>${dayNum}</strong> de ${total}`;
+      el.className = 'countdown now';
+    } else {
+      el.innerHTML = `🏁 Viagem terminada — boas memórias!`;
+      el.className = 'countdown done';
+    }
+  }
+
   function renderDashboard() {
     const trip = activeTrip();
     const exps = tripExpenses();
     const total = exps.reduce((s, e) => s + Number(e.amount), 0);
 
+    renderCountdown(trip);
     $('#tripNameLabel').textContent = trip.name;
     $('#tripDatesLabel').textContent = (trip.start && trip.end)
       ? `${prettyDate(trip.start)} – ${prettyDate(trip.end)}`
