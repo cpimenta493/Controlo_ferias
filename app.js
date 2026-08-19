@@ -242,11 +242,13 @@
   // ==================================================================
   //  MAPA DA VIAGEM
   // ==================================================================
-  let tripMap = null, tripMarkers = null;
+  let tripMap = null, expLayer = null, planLayer = null;
+  let showExpenses = true, showPlans = true;
 
   function renderMap() {
     const exps = tripExpenses();
-    const geo = exps.filter(e => e.location && e.location.lat != null && e.location.lng != null);
+    const geoExp = exps.filter(e => e.location && e.location.lat != null && e.location.lng != null);
+    const geoPlan = tripPlans().filter(p => p.location && p.location.lat != null && p.location.lng != null);
     const mapEl = $('#tripMap');
 
     // Lista "por local" (agrupa por nome, mesmo sem coordenadas)
@@ -254,7 +256,7 @@
 
     if (typeof L === 'undefined') { mapEl.innerHTML = '<p class="muted small" style="padding:16px">Mapa indisponível (sem ligação).</p>'; return; }
 
-    $('#mapEmpty').hidden = geo.length > 0;
+    $('#mapEmpty').hidden = (geoExp.length + geoPlan.length) > 0;
 
     setTimeout(() => {
       if (!tripMap) {
@@ -262,35 +264,67 @@
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
           maxZoom: 19, attribution: '© OpenStreetMap'
         }).addTo(tripMap);
-        tripMarkers = L.layerGroup().addTo(tripMap);
+        expLayer = L.layerGroup();
+        planLayer = L.layerGroup();
       }
       tripMap.invalidateSize();
-      tripMarkers.clearLayers();
-
-      if (geo.length === 0) { tripMap.setView([39.5, -8.0], 5); return; }
+      expLayer.clearLayers();
+      planLayer.clearLayers();
 
       const bounds = [];
-      geo.forEach(e => {
+
+      // Camada de gastos (pin cheio da cor da categoria)
+      geoExp.forEach(e => {
         const c = catById(e.category);
         const icon = L.divIcon({
           className: 'map-pin',
           html: `<div class="map-pin-in" style="background:${c.color}"><span>${c.emoji}</span></div>`,
           iconSize: [34, 34], iconAnchor: [17, 32], popupAnchor: [0, -30]
         });
-        const m = L.marker([e.location.lat, e.location.lng], { icon });
-        m.bindPopup(
+        L.marker([e.location.lat, e.location.lng], { icon }).bindPopup(
           `<strong>${escapeHtml(e.description || c.name)}</strong><br>` +
           `${c.emoji} ${c.name} · ${fmt(e.amount)}<br>` +
           `<span style="color:#889">${prettyDate(e.date)}</span><br>` +
           `<a href="${mapUrl(e.location)}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`
-        );
-        tripMarkers.addLayer(m);
+        ).addTo(expLayer);
         bounds.push([e.location.lat, e.location.lng]);
       });
+
+      // Camada de roteiro (círculo com contorno tracejado)
+      geoPlan.forEach(p => {
+        const t = planType(p.type);
+        const icon = L.divIcon({
+          className: 'map-pin',
+          html: `<div class="map-plan-in"><span>${t.emoji}</span></div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -14]
+        });
+        L.marker([p.location.lat, p.location.lng], { icon }).bindPopup(
+          `<strong>${escapeHtml(p.title)}</strong><br>` +
+          `${t.emoji} ${t.name}${p.time ? ' · ' + escapeHtml(p.time) : ''}<br>` +
+          `<span style="color:#889">${prettyDate(p.date)}</span><br>` +
+          `<a href="${mapUrl(p.location)}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`
+        ).addTo(planLayer);
+        bounds.push([p.location.lat, p.location.lng]);
+      });
+
+      applyMapLayers();
+
+      if (bounds.length === 0) { tripMap.setView([39.5, -8.0], 5); return; }
       if (bounds.length === 1) tripMap.setView(bounds[0], 15);
       else tripMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
     }, 200);
   }
+
+  function applyMapLayers() {
+    if (!tripMap) return;
+    if (showExpenses) expLayer.addTo(tripMap); else tripMap.removeLayer(expLayer);
+    if (showPlans) planLayer.addTo(tripMap); else tripMap.removeLayer(planLayer);
+    $('#toggleExpenses').classList.toggle('on', showExpenses);
+    $('#togglePlans').classList.toggle('on', showPlans);
+  }
+
+  $('#toggleExpenses').addEventListener('click', () => { showExpenses = !showExpenses; applyMapLayers(); });
+  $('#togglePlans').addEventListener('click', () => { showPlans = !showPlans; applyMapLayers(); });
 
   function renderByPlace(exps) {
     const withName = exps.filter(e => e.location && e.location.name);

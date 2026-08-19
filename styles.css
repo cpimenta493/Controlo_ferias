@@ -157,6 +157,21 @@ body { overscroll-behavior-y: none; }
   box-shadow: 0 2px 6px rgba(0,0,0,.35); border: 2px solid #fff;
 }
 .map-pin-in span { transform: rotate(45deg); font-size: 15px; line-height: 1; }
+.map-plan-in {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: var(--surface); border: 2px dashed #8b5cf6;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 6px rgba(0,0,0,.3);
+}
+.map-plan-in span { font-size: 15px; line-height: 1; }
+.map-toggles { display: flex; gap: 8px; margin-bottom: 12px; }
+.map-chip {
+  border: 1px solid var(--border); background: var(--surface); color: var(--muted);
+  border-radius: 20px; padding: 7px 14px; font-size: 0.82rem; font-weight: 700;
+  cursor: pointer; font-family: inherit; transition: all .15s;
+}
+.map-chip.on { border-color: var(--primary); color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--surface)); }
+.map-chip:not(.on) { opacity: .6; text-decoration: line-through; }
 .place-list { list-style: none; margin: 0; padding: 0; }
 .place-row {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
