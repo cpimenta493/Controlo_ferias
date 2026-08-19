@@ -1,7 +1,7 @@
 /* Service Worker — funcionamento offline
    Estratégia: REDE PRIMEIRO (quando há internet, mostra sempre a versão
    mais recente); a cache serve apenas de reserva quando estás offline. */
-const CACHE = 'ferias-gastos-v14';
+const CACHE = 'ferias-gastos-v15';
 const ASSETS = [
   './',
   './index.html',
@@ -9,7 +9,8 @@ const ASSETS = [
   './app.js',
   './firebase-config.js',
   './manifest.json',
-  './icon.svg'
+  './icon.svg',
+  './apple-touch-icon.png'
 ];
 
 self.addEventListener('install', (e) => {
