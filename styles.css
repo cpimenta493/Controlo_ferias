@@ -342,6 +342,7 @@ body { overscroll-behavior-y: none; }
 .btn-outline.danger { color: var(--danger); border-color: var(--danger); }
 .btn-sm { background: var(--primary); color: #fff; border: none; padding: 8px 14px; }
 .file-label { display: inline-flex; align-items: center; }
+.btn-outline.full { width: 100%; margin-bottom: 12px; }
 
 /* FAB */
 .fab {

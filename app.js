@@ -482,6 +482,7 @@
     buildPlanTypePicker();
     $('#planModalTitle').textContent = isEdit ? 'Editar atividade' : 'Nova atividade';
     $('#deletePlanBtn').hidden = !isEdit;
+    $('#planToExpenseBtn').hidden = !isEdit;
     $('#planId').value = isEdit ? plan.id : '';
     $('#planTitle').value = isEdit ? (plan.title || '') : '';
     $('#planDate').value = isEdit ? plan.date : (activeTrip().start || todayStr());
@@ -539,6 +540,26 @@
     state.plans = state.plans.filter(p => p.id !== id);
     save(); closeModal('#planModal'); refreshAll();
     toast('Atividade eliminada');
+  });
+
+  // Criar uma despesa a partir de uma atividade do roteiro
+  const PLAN_TO_CAT = {
+    atividade: 'atividades', comida: 'comida', transporte: 'transporte',
+    voo: 'transporte', alojamento: 'alojamento', passeio: 'atividades',
+    compras: 'compras', outro: 'outros'
+  };
+  $('#planToExpenseBtn').addEventListener('click', () => {
+    const id = $('#planId').value;
+    const p = state.plans.find(x => x.id === id);
+    if (!p) return;
+    closeModal('#planModal');
+    switchTab('despesas');
+    openExpenseModal(null, {
+      description: p.title,
+      category: PLAN_TO_CAT[p.type] || 'outros',
+      date: p.date,
+      location: p.location ? { ...p.location } : null
+    });
   });
 
   // ---------- Tema ----------
@@ -1034,24 +1055,26 @@
     });
   }
 
-  function openExpenseModal(exp) {
+  function openExpenseModal(exp, prefill) {
     const trip = activeTrip();
     buildCatPicker();
     $('#curBadge').textContent = CURRENCIES[trip.currency];
 
     const isEdit = !!exp;
+    const pre = prefill || {};
     $('#expenseModalTitle').textContent = isEdit ? 'Editar despesa' : 'Nova despesa';
     $('#deleteExpenseBtn').hidden = !isEdit;
     $('#expenseId').value = isEdit ? exp.id : '';
     $('#expenseAmount').value = isEdit ? exp.amount : '';
-    $('#expenseDesc').value = isEdit ? (exp.description || '') : '';
-    $('#expenseDate').value = isEdit ? exp.date : todayStr();
-    selectedCat = isEdit ? exp.category : 'comida';
+    $('#expenseDesc').value = isEdit ? (exp.description || '') : (pre.description || '');
+    $('#expenseDate').value = isEdit ? exp.date : (pre.date || todayStr());
+    selectedCat = isEdit ? exp.category : (pre.category || 'comida');
     buildCatPicker();
 
     // localização
-    selectedLoc = isEdit && exp.location ? { ...exp.location } : null;
-    $('#expenseLoc').value = isEdit && exp.location ? (exp.location.name || '') : '';
+    const loc = isEdit ? exp.location : pre.location;
+    selectedLoc = loc ? { ...loc } : null;
+    $('#expenseLoc').value = loc ? (loc.name || '') : '';
     updateLocLink();
 
     // pessoas / divisão
