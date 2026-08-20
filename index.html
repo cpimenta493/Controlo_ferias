@@ -8,10 +8,28 @@
   <title>Férias · Controlo de Gastos</title>
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <!-- iPhone/iPad: abrir em ecrã inteiro como app -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Férias" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Ecrã de bloqueio (palavra-passe) -->
+  <div class="lock-screen" id="lockScreen" hidden>
+    <div class="lock-box">
+      <div class="lock-icon">🔒</div>
+      <h2>Férias</h2>
+      <p class="muted" id="lockMsg">Introduz a palavra-passe</p>
+      <input type="password" id="lockInput" inputmode="text" autocomplete="off" placeholder="Palavra-passe" />
+      <button class="btn-primary" id="lockBtn">Entrar</button>
+      <p class="lock-error" id="lockError" hidden>Palavra-passe errada 🙈</p>
+    </div>
+  </div>
+
   <div id="app">
     <!-- Cabeçalho -->
     <header class="topbar">
@@ -25,6 +43,7 @@
         </div>
       </div>
       <div class="topbar-right">
+        <span class="sync-badge" id="syncBadge" title="Estado da sincronização" hidden></span>
         <button class="icon-btn" id="themeBtn" title="Tema claro/escuro" aria-label="Alternar tema">
           <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.39 5.39 0 0 1-4.4 2.26 5.4 5.4 0 0 1-5.4-5.4c0-1.81.89-3.42 2.26-4.4C12.92 3.04 12.46 3 12 3z"/></svg>
         </button>
@@ -35,30 +54,21 @@
     <main class="content">
       <!-- Painel -->
       <section class="tab-panel active" id="tab-painel">
-        <div class="budget-hero card">
-          <div class="ring-wrap">
-            <svg class="ring" viewBox="0 0 120 120" width="132" height="132">
-              <circle class="ring-bg" cx="60" cy="60" r="52" />
-              <circle class="ring-fg" id="budgetRing" cx="60" cy="60" r="52" />
-            </svg>
-            <div class="ring-center">
-              <span class="ring-pct" id="budgetPct">0%</span>
-              <span class="ring-lbl">do orçamento</span>
-            </div>
+        <div class="countdown" id="countdown" hidden></div>
+        <div class="card weather-card" id="weatherCard" hidden>
+          <div class="card-head">
+            <h3>Meteorologia</h3>
+            <span class="muted small" id="weatherPlace"></span>
           </div>
-          <div class="budget-info">
-            <div class="budget-row">
-              <span class="muted">Gasto</span>
-              <strong id="spentLabel">0</strong>
-            </div>
-            <div class="budget-row">
-              <span class="muted">Orçamento</span>
-              <button class="link-btn" id="editBudgetBtn"><span id="budgetLabel">definir</span></button>
-            </div>
-            <div class="budget-row">
-              <span class="muted">Disponível</span>
-              <strong id="remainLabel" class="ok">0</strong>
-            </div>
+          <div class="weather-strip" id="weatherStrip"></div>
+        </div>
+        <div class="total-hero card">
+          <span class="total-lbl">Total gasto</span>
+          <span class="total-val" id="totalSpent">—</span>
+          <span class="total-sub" id="totalSub">Sem despesas ainda</span>
+          <div class="total-split" id="totalSplit" hidden>
+            <span>📅 Dia-a-dia <strong id="splitDaily">—</strong></span>
+            <span>📌 Fixas <strong id="splitFixed">—</strong></span>
           </div>
         </div>
 
@@ -110,16 +120,29 @@
 
       <!-- Despesas -->
       <section class="tab-panel" id="tab-despesas">
+        <div class="seg" id="expSeg">
+          <button type="button" class="seg-btn active" data-view="dia">📅 Por dia</button>
+          <button type="button" class="seg-btn" data-view="fixas">📌 Fixas</button>
+        </div>
         <div class="filter-bar">
           <input type="search" id="searchInput" placeholder="Procurar despesa…" />
           <select id="filterCat">
             <option value="">Todas as categorias</option>
           </select>
         </div>
-        <ul class="expense-list" id="expenseList"></ul>
+        <div class="expense-list" id="expenseList"></div>
         <div class="empty" id="expenseEmpty">
           <p>Ainda não há despesas.</p>
           <p class="muted">Toca no <strong>+</strong> para adicionar a primeira.</p>
+        </div>
+      </section>
+
+      <!-- Roteiro -->
+      <section class="tab-panel" id="tab-roteiro">
+        <div class="plan-list" id="planList"></div>
+        <div class="empty" id="planEmpty">
+          <p>Ainda não há nada no roteiro.</p>
+          <p class="muted">Toca no <strong>+</strong> para planear a primeira atividade.</p>
         </div>
       </section>
 
@@ -142,6 +165,12 @@
         </div>
 
         <div class="card">
+          <div class="card-head"><h3>Segurança</h3></div>
+          <p class="muted small" id="passStatus">A app não pede palavra-passe.</p>
+          <button class="btn-outline" id="openPassBtn">🔒 Palavra-passe de acesso</button>
+        </div>
+
+        <div class="card">
           <div class="card-head"><h3>Dados</h3></div>
           <div class="data-actions">
             <button class="btn-outline" id="exportCsvBtn">Exportar CSV</button>
@@ -151,6 +180,26 @@
               <input type="file" id="importInput" accept="application/json" hidden />
             </label>
           </div>
+        </div>
+      </section>
+
+      <!-- Mapa -->
+      <section class="tab-panel" id="tab-mapa">
+        <div class="map-toggles">
+          <button type="button" class="map-chip on" id="toggleExpenses">💶 Gastos</button>
+          <button type="button" class="map-chip on" id="togglePlans">🗺️ Roteiro</button>
+        </div>
+        <div id="tripMap" class="trip-map"></div>
+        <div class="empty" id="mapEmpty" hidden>
+          <p>Ainda não há gastos com localização.</p>
+          <p class="muted">Ao adicionar uma despesa, escolhe o local no 🗺️.</p>
+        </div>
+        <div class="card" id="byPlaceCard" hidden>
+          <div class="card-head">
+            <h3>Gastos por local</h3>
+            <span class="muted small" id="byPlaceCount"></span>
+          </div>
+          <ul class="place-list" id="placeList"></ul>
         </div>
       </section>
     </main>
@@ -166,9 +215,17 @@
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
         <span>Painel</span>
       </button>
+      <button class="tab-btn" data-tab="roteiro">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M9 3L4 5v16l5-2 6 2 5-2V3l-5 2-6-2zm0 2.5l6 2v11l-6-2v-11z"/></svg>
+        <span>Roteiro</span>
+      </button>
       <button class="tab-btn" data-tab="despesas">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h18v2H3v-2zm0 5h12v2H3v-2z"/></svg>
         <span>Despesas</span>
+      </button>
+      <button class="tab-btn" data-tab="mapa">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 2C8.1 2 5 5.1 5 9c0 5.2 7 13 7 13s7-7.8 7-13c0-3.9-3.1-7-7-7zm0 9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z"/></svg>
+        <span>Mapa</span>
       </button>
       <button class="tab-btn" data-tab="viagens">
         <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M20 8h-3V6a2 2 0 0 0-2-2H9a2 2 0 0 0-2 2v2H4a2 2 0 0 0-2 2v9h20v-9a2 2 0 0 0-2-2zM9 6h6v2H9V6z"/></svg>
@@ -199,6 +256,20 @@
         <label class="fld">
           <span>Descrição</span>
           <input type="text" id="expenseDesc" placeholder="ex: Jantar na praia" />
+        </label>
+
+        <label class="fld">
+          <span>Local</span>
+          <div class="loc-input">
+            <input type="text" id="expenseLoc" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="mapPickBtn" title="Escolher no mapa">🗺️</button>
+          </div>
+          <a class="loc-link" id="locLink" target="_blank" rel="noopener" hidden>Ver no mapa ↗</a>
+        </label>
+
+        <label class="switch-row">
+          <span>Despesa fixa <small class="muted">(alojamento, viagem…)</small></span>
+          <input type="checkbox" id="expenseFixed" class="switch" />
         </label>
 
         <div class="fld-row">
@@ -248,11 +319,15 @@
             <input type="date" id="tripEnd" />
           </label>
         </div>
+        <label class="fld">
+          <span>Destino (para a meteorologia)</span>
+          <div class="loc-input">
+            <input type="text" id="tripPlace" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="tripMapBtn" title="Escolher no mapa">🗺️</button>
+          </div>
+        </label>
+
         <div class="fld-row">
-          <label class="fld">
-            <span>Orçamento</span>
-            <input type="number" id="tripBudget" inputmode="decimal" step="0.01" min="0" placeholder="opcional" />
-          </label>
           <label class="fld">
             <span>Moeda</span>
             <select id="tripCurrency">
@@ -273,27 +348,125 @@
     </div>
   </div>
 
-  <!-- Modal: orçamento rápido -->
-  <div class="modal-backdrop" id="budgetModal" hidden>
+  <!-- Modal: palavra-passe -->
+  <div class="modal-backdrop" id="passModal" hidden>
     <div class="modal sheet small">
       <div class="modal-head">
-        <h2>Orçamento</h2>
+        <h2 id="passModalTitle">Palavra-passe</h2>
         <button class="icon-btn" data-close aria-label="Fechar">✕</button>
       </div>
-      <form id="budgetForm">
+      <form id="passForm">
+        <p class="muted small" id="passHint">Define uma palavra-passe para entrar na app. Vai ser pedida a cada dispositivo na primeira vez.</p>
         <label class="fld">
-          <span>Orçamento total para esta viagem</span>
-          <input type="number" id="budgetInput" inputmode="decimal" step="0.01" min="0" placeholder="0,00" />
+          <span>Nova palavra-passe</span>
+          <input type="password" id="passNew" autocomplete="new-password" placeholder="mínimo 3 caracteres" />
+        </label>
+        <label class="fld">
+          <span>Confirmar</span>
+          <input type="password" id="passConfirm" autocomplete="new-password" />
         </label>
         <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="passRemoveBtn" hidden>Remover</button>
           <button type="submit" class="btn-primary">Guardar</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- Modal: atividade do roteiro -->
+  <div class="modal-backdrop" id="planModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2 id="planModalTitle">Nova atividade</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <form id="planForm">
+        <input type="hidden" id="planId" />
+        <label class="fld">
+          <span>O quê?</span>
+          <input type="text" id="planTitle" placeholder="ex: Visita ao castelo" required />
+        </label>
+
+        <div class="cat-picker" id="planTypePicker"></div>
+
+        <div class="fld-row">
+          <label class="fld">
+            <span>Dia</span>
+            <input type="date" id="planDate" required />
+          </label>
+          <label class="fld">
+            <span>Hora (opcional)</span>
+            <input type="time" id="planTime" />
+          </label>
+        </div>
+
+        <label class="fld">
+          <span>Preço estimado (opcional)</span>
+          <div class="amount-input small">
+            <input type="number" id="planCost" inputmode="decimal" step="0.01" min="0" placeholder="0,00" />
+            <span class="cur-badge" id="planCurBadge">€</span>
+          </div>
+        </label>
+
+        <label class="fld">
+          <span>Local</span>
+          <div class="loc-input">
+            <input type="text" id="planLoc" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="planMapBtn" title="Escolher no mapa">🗺️</button>
+          </div>
+          <a class="loc-link" id="planLocLink" target="_blank" rel="noopener" hidden>Ver no mapa ↗</a>
+        </label>
+
+        <label class="fld">
+          <span>Notas (opcional)</span>
+          <textarea id="planNote" rows="2" placeholder="ex: bilhetes já comprados"></textarea>
+        </label>
+
+        <label class="fld">
+          <span>Link (opcional)</span>
+          <input type="url" id="planLink" inputmode="url" placeholder="https://…" />
+        </label>
+
+        <button type="button" class="btn-outline full" id="planToExpenseBtn" hidden>💶 Criar despesa a partir desta atividade</button>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-outline danger" id="deletePlanBtn" hidden>Eliminar</button>
+          <button type="submit" class="btn-primary">Guardar</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: escolher local no mapa -->
+  <div class="modal-backdrop" id="mapModal" hidden>
+    <div class="modal sheet">
+      <div class="modal-head">
+        <h2>Escolher local</h2>
+        <button class="icon-btn" data-close aria-label="Fechar">✕</button>
+      </div>
+      <div class="map-search">
+        <input type="search" id="mapSearch" placeholder="Procurar sítio (ex: Praia da Rocha)" />
+        <button type="button" class="btn-sm" id="mapSearchBtn">Procurar</button>
+      </div>
+      <div id="mapPick" class="map-pick"></div>
+      <p class="muted small map-hint" id="mapHint">Toca no mapa para marcar o local.</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-outline" id="mapClearBtn">Limpar</button>
+        <button type="button" class="btn-primary" id="mapConfirmBtn">Confirmar local</button>
+      </div>
+    </div>
+  </div>
+
   <div class="toast" id="toast" hidden></div>
 
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+
+  <!-- Firebase (sincronização na nuvem). Se estiver offline ou sem
+       configuração, a app funciona à mesma só neste dispositivo. -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

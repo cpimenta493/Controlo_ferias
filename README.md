@@ -56,7 +56,44 @@ estes ficheiros na raiz.
 | `sw.js` | Service worker (funcionamento offline) |
 | `icon.svg` | Ícone da aplicação |
 
+## ☁️ Sincronização entre dispositivos (opcional)
+
+Por omissão, os dados ficam guardados **só no dispositivo**. Se quiseres que os
+gastos fiquem **partilhados e sincronizados em tempo real** (todos veem os dados
+anteriores e podem adicionar/editar, no telemóvel e no computador), liga a app a
+um projeto **Firebase** gratuito:
+
+1. Vai a **https://console.firebase.google.com** e clica **"Adicionar projeto"**.
+   Dá-lhe um nome (ex: `ferias`) e avança (podes desativar o Google Analytics).
+2. No menu à esquerda, abre **Build → Firestore Database → Criar base de dados**.
+   Escolhe **"Iniciar em modo de teste"** e uma localização (ex: `eur3` Europa).
+3. Volta a **⚙ Definições do projeto**. Em **"As tuas apps"**, clica no ícone
+   **Web `</>`**, regista a app (nome à escolha) e copia o objeto `firebaseConfig`.
+4. Cola esses valores no ficheiro **`firebase-config.js`** deste projeto
+   (substitui os `COLA_AQUI...`). Faz commit/push.
+5. Abre a app: no topo deve aparecer **"☁ sincronizado"**. Os dados que já tinhas
+   são enviados automaticamente para a nuvem na primeira vez.
+
+### Tornar a partilha permanente (regras)
+O "modo de teste" expira ao fim de ~30 dias. Para manter o acesso, vai a
+**Firestore → Regras** e coloca:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} { allow read, write: if true; }
+  }
+}
+```
+
+> ⚠️ Com estas regras, **qualquer pessoa com o link da app consegue ver e editar**
+> os gastos. Para uma app de férias em família costuma ser o pretendido. Se mais
+> tarde quiseres proteger com palavra-passe/login, dá para acrescentar.
+
 ## 🔒 Privacidade
 
-Todos os dados ficam **apenas no teu dispositivo**. Nada é enviado para a internet.
-Usa a **cópia de segurança (JSON)** para transferir os dados entre dispositivos.
+- **Sem Firebase:** os dados ficam apenas no teu dispositivo; nada sai para a internet.
+  Usa a **cópia de segurança (JSON)** para os transferir entre dispositivos.
+- **Com Firebase:** os dados ficam na tua base de dados Firestore e sincronizam
+  entre todos os dispositivos que abrem a app.

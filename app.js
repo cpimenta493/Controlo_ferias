@@ -21,22 +21,40 @@
   ];
   const catById = (id) => CATEGORIES.find(c => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
 
+  // Tipos de atividade do roteiro
+  const PLAN_TYPES = [
+    { id: 'atividade',  name: 'Atividade',  emoji: '🎫' },
+    { id: 'comida',     name: 'Refeição',   emoji: '🍽️' },
+    { id: 'transporte', name: 'Transporte', emoji: '🚗' },
+    { id: 'voo',        name: 'Voo',        emoji: '✈️' },
+    { id: 'alojamento', name: 'Alojamento', emoji: '🏨' },
+    { id: 'passeio',    name: 'Passeio',    emoji: '🏞️' },
+    { id: 'compras',    name: 'Compras',    emoji: '🛍️' },
+    { id: 'outro',      name: 'Outro',      emoji: '📌' }
+  ];
+  const planType = (id) => PLAN_TYPES.find(t => t.id === id) || PLAN_TYPES[PLAN_TYPES.length - 1];
+
   // ---------- Estado ----------
   let state = load();
 
   function load() {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw);
+      if (raw) {
+        const s = JSON.parse(raw);
+        if (!s.plans) s.plans = [];   // compatibilidade com dados antigos
+        return s;
+      }
     } catch (e) { /* ignora */ }
     // Estado inicial
     const tripId = uid();
     return {
       trips: [{
-        id: tripId, name: 'As minhas férias', budget: 0,
+        id: tripId, name: 'As minhas férias',
         currency: 'EUR', start: '', end: '', people: []
       }],
       expenses: [],
+      plans: [],
       activeTrip: tripId,
       theme: 'light'
     };
@@ -49,8 +67,136 @@
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 
+  // ================================================================
+  //  SINCRONIZAÇÃO NA NUVEM (Firebase Firestore) — opcional
+  //  Se não estiver configurado ou estiver offline, a app continua
+  //  a funcionar apenas com os dados locais (localStorage).
+  // ================================================================
+  const cloud = { on: false, db: null, seeded: false };
+
+  function cloudConfigured() {
+    const c = window.FERIAS_FIREBASE;
+    return !!(c && typeof firebase !== 'undefined' && c.apiKey &&
+              !String(c.apiKey).startsWith('COLA_'));
+  }
+
+  function setSyncBadge(mode) {
+    const b = $('#syncBadge');
+    if (!b) return;
+    b.hidden = false;
+    if (mode === 'sync') { b.textContent = '☁ sincronizado'; b.className = 'sync-badge on'; }
+    else { b.textContent = '⌂ só neste dispositivo'; b.className = 'sync-badge'; }
+  }
+
+  function initCloud() {
+    if (!cloudConfigured()) { setSyncBadge('local'); return; }
+    try {
+      firebase.initializeApp(window.FERIAS_FIREBASE);
+      cloud.db = firebase.firestore();
+      cloud.on = true;
+      cloud.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
+      setSyncBadge('sync');
+      subscribeCloud();
+    } catch (e) {
+      console.warn('Firebase indisponível:', e);
+      cloud.on = false;
+      setSyncBadge('local');
+    }
+  }
+
+  function subscribeCloud() {
+    cloud.db.collection('trips').onSnapshot(snap => {
+      const trips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (trips.length === 0 && !cloud.seeded) {
+        cloud.seeded = true;
+        seedCloudFromLocal();   // primeira utilização: envia o que já existe localmente
+        return;
+      }
+      cloud.seeded = true;
+      if (trips.length) state.trips = trips;
+      if (!state.trips.find(t => t.id === state.activeTrip)) {
+        state.activeTrip = state.trips[0] ? state.trips[0].id : null;
+      }
+      save();
+      refreshAll();
+    }, err => console.warn('trips onSnapshot:', err));
+
+    cloud.db.collection('expenses').onSnapshot(snap => {
+      state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      save();
+      refreshAll();
+    }, err => console.warn('expenses onSnapshot:', err));
+
+    cloud.db.collection('plans').onSnapshot(snap => {
+      state.plans = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      save();
+      refreshAll();
+    }, err => console.warn('plans onSnapshot:', err));
+
+    cloud.db.collection('config').doc('app').onSnapshot(d => {
+      const h = d.exists ? (d.data().passHash || '') : '';
+      setPassHashLocal(h);   // sincroniza a palavra-passe entre dispositivos
+    }, err => console.warn('config onSnapshot:', err));
+  }
+
+  function pushPassHash(hash) {
+    if (cloud.on) cloud.db.collection('config').doc('app').set({ passHash: hash || '' }).catch(() => {});
+  }
+
+  function seedCloudFromLocal() {
+    const batch = cloud.db.batch();
+    (state.trips || []).forEach(t => {
+      const { id, ...data } = t;
+      batch.set(cloud.db.collection('trips').doc(id), data);
+    });
+    (state.expenses || []).forEach(e => {
+      const { id, ...data } = e;
+      batch.set(cloud.db.collection('expenses').doc(id), data);
+    });
+    (state.plans || []).forEach(p => {
+      const { id, ...data } = p;
+      batch.set(cloud.db.collection('plans').doc(id), data);
+    });
+    batch.commit().catch(err => console.warn('seed inicial:', err));
+  }
+
+  // Escritas na nuvem (sem efeito quando a sincronização está desligada)
+  function pushTrip(trip) {
+    if (!cloud.on) return;
+    const { id, ...data } = trip;
+    cloud.db.collection('trips').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function pushExpense(exp) {
+    if (!cloud.on) return;
+    const { id, ...data } = exp;
+    cloud.db.collection('expenses').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function delTripCloud(id) {
+    if (!cloud.on) return;
+    cloud.db.collection('trips').doc(id).delete().catch(() => {});
+    state.expenses.filter(e => e.tripId === id).forEach(e =>
+      cloud.db.collection('expenses').doc(e.id).delete().catch(() => {}));
+    (state.plans || []).filter(p => p.tripId === id).forEach(p =>
+      cloud.db.collection('plans').doc(p.id).delete().catch(() => {}));
+  }
+  function delExpenseCloud(id) {
+    if (cloud.on) cloud.db.collection('expenses').doc(id).delete().catch(() => {});
+  }
+  function pushPlan(plan) {
+    if (!cloud.on) return;
+    const { id, ...data } = plan;
+    cloud.db.collection('plans').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
+  }
+  function delPlanCloud(id) {
+    if (cloud.on) cloud.db.collection('plans').doc(id).delete().catch(() => {});
+  }
+  function pushAllCloud() {
+    if (cloud.on) seedCloudFromLocal();
+  }
+
   const activeTrip = () => state.trips.find(t => t.id === state.activeTrip) || state.trips[0];
   const tripExpenses = () => state.expenses.filter(e => e.tripId === state.activeTrip);
+  const tripPlans = () => (state.plans || []).filter(p => p.tripId === state.activeTrip);
 
   // ---------- Helpers ----------
   const $ = (sel) => document.querySelector(sel);
@@ -98,7 +244,345 @@
     if (tab === 'painel') renderDashboard();
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
+    if (tab === 'mapa') renderMap();
+    if (tab === 'roteiro') renderItinerary();
   }
+
+  // ==================================================================
+  //  MAPA DA VIAGEM
+  // ==================================================================
+  let tripMap = null, expLayer = null, planLayer = null;
+  let showExpenses = true, showPlans = true;
+
+  function renderMap() {
+    const exps = tripExpenses();
+    const geoExp = exps.filter(e => e.location && e.location.lat != null && e.location.lng != null);
+    const geoPlan = tripPlans().filter(p => p.location && p.location.lat != null && p.location.lng != null);
+    const mapEl = $('#tripMap');
+
+    // Lista "por local" (agrupa por nome, mesmo sem coordenadas)
+    renderByPlace(exps);
+
+    if (typeof L === 'undefined') { mapEl.innerHTML = '<p class="muted small" style="padding:16px">Mapa indisponível (sem ligação).</p>'; return; }
+
+    $('#mapEmpty').hidden = (geoExp.length + geoPlan.length) > 0;
+
+    setTimeout(() => {
+      if (!tripMap) {
+        tripMap = L.map('tripMap', { zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '© OpenStreetMap'
+        }).addTo(tripMap);
+        expLayer = L.layerGroup();
+        planLayer = L.layerGroup();
+      }
+      tripMap.invalidateSize();
+      expLayer.clearLayers();
+      planLayer.clearLayers();
+
+      const bounds = [];
+
+      // Camada de gastos (pin cheio da cor da categoria)
+      geoExp.forEach(e => {
+        const c = catById(e.category);
+        const icon = L.divIcon({
+          className: 'map-pin',
+          html: `<div class="map-pin-in" style="background:${c.color}"><span>${c.emoji}</span></div>`,
+          iconSize: [34, 34], iconAnchor: [17, 32], popupAnchor: [0, -30]
+        });
+        L.marker([e.location.lat, e.location.lng], { icon }).bindPopup(
+          `<strong>${escapeHtml(e.description || c.name)}</strong><br>` +
+          `${c.emoji} ${c.name} · ${fmt(e.amount)}<br>` +
+          `<span style="color:#889">${prettyDate(e.date)}</span><br>` +
+          `<a href="${mapUrl(e.location)}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`
+        ).addTo(expLayer);
+        bounds.push([e.location.lat, e.location.lng]);
+      });
+
+      // Camada de roteiro (círculo com contorno tracejado)
+      geoPlan.forEach(p => {
+        const t = planType(p.type);
+        const icon = L.divIcon({
+          className: 'map-pin',
+          html: `<div class="map-plan-in"><span>${t.emoji}</span></div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -14]
+        });
+        L.marker([p.location.lat, p.location.lng], { icon }).bindPopup(
+          `<strong>${escapeHtml(p.title)}</strong><br>` +
+          `${t.emoji} ${t.name}${p.time ? ' · ' + escapeHtml(p.time) : ''}<br>` +
+          `<span style="color:#889">${prettyDate(p.date)}</span><br>` +
+          `<a href="${mapUrl(p.location)}" target="_blank" rel="noopener">Abrir no Google Maps ↗</a>`
+        ).addTo(planLayer);
+        bounds.push([p.location.lat, p.location.lng]);
+      });
+
+      applyMapLayers();
+
+      if (bounds.length === 0) { tripMap.setView([39.5, -8.0], 5); return; }
+      if (bounds.length === 1) tripMap.setView(bounds[0], 15);
+      else tripMap.fitBounds(bounds, { padding: [40, 40], maxZoom: 16 });
+    }, 200);
+  }
+
+  function applyMapLayers() {
+    if (!tripMap) return;
+    if (showExpenses) expLayer.addTo(tripMap); else tripMap.removeLayer(expLayer);
+    if (showPlans) planLayer.addTo(tripMap); else tripMap.removeLayer(planLayer);
+    $('#toggleExpenses').classList.toggle('on', showExpenses);
+    $('#togglePlans').classList.toggle('on', showPlans);
+  }
+
+  $('#toggleExpenses').addEventListener('click', () => { showExpenses = !showExpenses; applyMapLayers(); });
+  $('#togglePlans').addEventListener('click', () => { showPlans = !showPlans; applyMapLayers(); });
+
+  function renderByPlace(exps) {
+    const withName = exps.filter(e => e.location && e.location.name);
+    const groups = {};
+    withName.forEach(e => {
+      const key = e.location.name;
+      if (!groups[key]) groups[key] = { name: key, total: 0, count: 0, loc: e.location };
+      groups[key].total += Number(e.amount);
+      groups[key].count++;
+    });
+    const arr = Object.values(groups).sort((a, b) => b.total - a.total);
+    const card = $('#byPlaceCard');
+    const listEl = $('#placeList');
+    if (arr.length === 0) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#byPlaceCount').textContent = `${arr.length} ${arr.length > 1 ? 'locais' : 'local'}`;
+    listEl.innerHTML = '';
+    arr.forEach(g => {
+      const li = document.createElement('li');
+      li.className = 'place-row';
+      li.innerHTML = `
+        <span class="place-name">📍 ${escapeHtml(g.name)}</span>
+        <span class="place-info">${g.count} · <strong>${fmt(g.total)}</strong></span>`;
+      if (g.loc.lat != null) {
+        li.style.cursor = 'pointer';
+        li.addEventListener('click', () => {
+          if (tripMap) { tripMap.setView([g.loc.lat, g.loc.lng], 16); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        });
+      }
+      listEl.appendChild(li);
+    });
+  }
+
+  // ==================================================================
+  //  ROTEIRO (itinerário)
+  // ==================================================================
+  const collapsedPlanDays = new Set();
+  let selectedPlanType = 'atividade';
+
+  function renderItinerary() {
+    const trip = activeTrip();
+    const plans = tripPlans();
+    const list = $('#planList');
+    const empty = $('#planEmpty');
+    list.innerHTML = '';
+    if (plans.length === 0) { empty.hidden = false; return; }
+    empty.hidden = true;
+
+    const byDay = {};
+    plans.forEach(p => { (byDay[p.date] = byDay[p.date] || []).push(p); });
+    const days = Object.keys(byDay).sort((a, b) => a.localeCompare(b)); // cronológico
+    const orderKey = (p) => (p.order != null ? p.order : (p.createdAt || 0));
+
+    days.forEach(day => {
+      const items = byDay[day].sort((a, b) => {
+        const ta = a.time || '', tb = b.time || '';
+        if (ta && tb && ta !== tb) return ta.localeCompare(tb);
+        if (ta && !tb) return -1;
+        if (!ta && tb) return 1;
+        return orderKey(a) - orderKey(b);
+      });
+      const doneCount = items.filter(p => p.done).length;
+      const dayCost = items.reduce((s, p) => s + (Number(p.cost) || 0), 0);
+      const collapsed = collapsedPlanDays.has(day);
+
+      const head = document.createElement('div');
+      head.className = 'day-head' + (collapsed ? ' collapsed' : '');
+      head.innerHTML = `
+        <span class="day-title">${dayLabel(day)}</span>
+        <span class="day-sum"><span class="day-wx" id="wx-${day}"></span>${doneCount}/${items.length} feito${dayCost > 0 ? ' · ' + fmt(dayCost) : ''}
+          <span class="chev" aria-hidden="true">▾</span></span>`;
+
+      // meteorologia do dia: local marcado nesse dia, senão o destino da viagem
+      const withLoc = items.find(p => p.location && p.location.lat != null);
+      const coords = withLoc ? withLoc.location : (trip.place && trip.place.lat != null ? trip.place : null);
+      if (coords) fillDayWeather(day, coords.lat, coords.lng);
+      head.addEventListener('click', () => {
+        if (collapsedPlanDays.has(day)) collapsedPlanDays.delete(day);
+        else collapsedPlanDays.add(day);
+        renderItinerary();
+      });
+      list.appendChild(head);
+      if (collapsed) return;
+
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      group.dataset.day = day;
+      items.forEach(p => group.appendChild(renderPlanItem(p)));
+      list.appendChild(group);
+
+      if (window.Sortable) {
+        new Sortable(group, {
+          handle: '.drag-handle', animation: 150,
+          delayOnTouchOnly: true, delay: 120,
+          ghostClass: 'exp-ghost', chosenClass: 'exp-chosen',
+          onEnd: () => savePlanOrder(group)
+        });
+      }
+    });
+  }
+
+  function renderPlanItem(p) {
+    const t = planType(p.type);
+    const item = document.createElement('div');
+    item.className = 'plan-item' + (p.done ? ' done' : '');
+    item.dataset.id = p.id;
+    const locHtml = (p.location && (p.location.name || p.location.lat != null))
+      ? `<a class="exp-loc" href="${mapUrl(p.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(p.location.name || 'Ver no mapa')}</a>` : '';
+    const safeLink = p.link && /^https?:\/\//i.test(p.link) ? p.link : '';
+    const linkHtml = safeLink ? `<a class="plan-link" href="${escapeAttr(safeLink)}" target="_blank" rel="noopener">🔗 Link</a>` : '';
+    const noteHtml = p.note ? `<div class="plan-note">${escapeHtml(p.note)}</div>` : '';
+    const costHtml = p.cost > 0 ? `<div class="plan-cost">${fmt(p.cost)}</div>` : '';
+    item.innerHTML = `
+      <div class="drag-handle" title="Arrastar">⠿</div>
+      <button type="button" class="plan-check" aria-label="Marcar como feito">${p.done ? '✅' : '⬜'}</button>
+      <div class="plan-body">
+        <div class="plan-title">${p.time ? `<span class="plan-time">${escapeHtml(p.time)}</span> ` : ''}${t.emoji} ${escapeHtml(p.title)}</div>
+        ${noteHtml}
+        <div class="plan-meta">${[locHtml, linkHtml].filter(Boolean).join(' · ')}</div>
+      </div>
+      ${costHtml}`;
+    item.querySelector('.plan-check').addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      p.done = !p.done; pushPlan(p); save(); renderItinerary();
+    });
+    item.querySelector('.drag-handle').addEventListener('click', (ev) => ev.stopPropagation());
+    const locEl = item.querySelector('.exp-loc');
+    if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
+    const lk = item.querySelector('.plan-link');
+    if (lk) lk.addEventListener('click', (ev) => ev.stopPropagation());
+    item.addEventListener('click', () => openPlanModal(p));
+    return item;
+  }
+
+  function savePlanOrder(group) {
+    const ids = Array.from(group.children).map(el => el.dataset.id);
+    ids.forEach((id, i) => {
+      const p = (state.plans || []).find(x => x.id === id);
+      if (p) { p.order = i; pushPlan(p); }
+    });
+    save();
+    toast('Ordem guardada ✅');
+  }
+
+  function buildPlanTypePicker() {
+    const wrap = $('#planTypePicker');
+    wrap.innerHTML = '';
+    PLAN_TYPES.forEach(t => {
+      const div = document.createElement('div');
+      div.className = 'cat-opt' + (t.id === selectedPlanType ? ' selected' : '');
+      div.innerHTML = `<span class="c-emoji">${t.emoji}</span><span class="c-name">${t.name}</span>`;
+      div.addEventListener('click', () => {
+        selectedPlanType = t.id;
+        $$('#planTypePicker .cat-opt').forEach(o => o.classList.remove('selected'));
+        div.classList.add('selected');
+      });
+      wrap.appendChild(div);
+    });
+  }
+
+  function openPlanModal(plan) {
+    const isEdit = !!plan;
+    selectedPlanType = isEdit ? (plan.type || 'atividade') : 'atividade';
+    buildPlanTypePicker();
+    $('#planModalTitle').textContent = isEdit ? 'Editar atividade' : 'Nova atividade';
+    $('#deletePlanBtn').hidden = !isEdit;
+    $('#planToExpenseBtn').hidden = !isEdit;
+    $('#planId').value = isEdit ? plan.id : '';
+    $('#planTitle').value = isEdit ? (plan.title || '') : '';
+    $('#planDate').value = isEdit ? plan.date : (activeTrip().start || todayStr());
+    $('#planTime').value = isEdit ? (plan.time || '') : '';
+    $('#planCurBadge').textContent = CURRENCIES[activeTrip().currency] || '€';
+    $('#planCost').value = isEdit && plan.cost ? plan.cost : '';
+    $('#planNote').value = isEdit ? (plan.note || '') : '';
+    $('#planLink').value = isEdit ? (plan.link || '') : '';
+    planSelLoc = isEdit && plan.location ? { ...plan.location } : null;
+    $('#planLoc').value = isEdit && plan.location ? (plan.location.name || '') : '';
+    updatePlanLocLink();
+    showModal('#planModal');
+    setTimeout(() => $('#planTitle').focus(), 200);
+  }
+
+  function buildPlanLocation() {
+    const name = $('#planLoc').value.trim();
+    if (!name && !planSelLoc) return null;
+    return {
+      name: name || (planSelLoc && planSelLoc.name) || '',
+      lat: planSelLoc && planSelLoc.lat != null ? planSelLoc.lat : null,
+      lng: planSelLoc && planSelLoc.lng != null ? planSelLoc.lng : null
+    };
+  }
+
+  $('#planForm').addEventListener('submit', (ev) => {
+    ev.preventDefault();
+    const title = $('#planTitle').value.trim();
+    if (!title) { toast('Escreve o que vais fazer'); return; }
+    const id = $('#planId').value;
+    const data = {
+      tripId: activeTrip().id,
+      title, type: selectedPlanType,
+      date: $('#planDate').value || todayStr(),
+      time: $('#planTime').value || '',
+      cost: Math.round((parseFloat($('#planCost').value) || 0) * 100) / 100,
+      note: $('#planNote').value.trim(),
+      link: $('#planLink').value.trim(),
+      location: buildPlanLocation()
+    };
+    if (id) {
+      const p = state.plans.find(x => x.id === id);
+      Object.assign(p, data); pushPlan(p);
+      toast('Atividade atualizada ✅');
+    } else {
+      const p = { id: uid(), createdAt: Date.now(), done: false, ...data };
+      state.plans.push(p); pushPlan(p);
+      toast('Adicionado ao roteiro 🗺️');
+    }
+    save(); closeModal('#planModal'); refreshAll();
+  });
+
+  $('#deletePlanBtn').addEventListener('click', () => {
+    const id = $('#planId').value;
+    if (!id) return;
+    if (!confirm('Eliminar esta atividade?')) return;
+    delPlanCloud(id);
+    state.plans = state.plans.filter(p => p.id !== id);
+    save(); closeModal('#planModal'); refreshAll();
+    toast('Atividade eliminada');
+  });
+
+  // Criar uma despesa a partir de uma atividade do roteiro
+  const PLAN_TO_CAT = {
+    atividade: 'atividades', comida: 'comida', transporte: 'transporte',
+    voo: 'transporte', alojamento: 'alojamento', passeio: 'atividades',
+    compras: 'compras', outro: 'outros'
+  };
+  $('#planToExpenseBtn').addEventListener('click', () => {
+    const id = $('#planId').value;
+    const p = state.plans.find(x => x.id === id);
+    if (!p) return;
+    closeModal('#planModal');
+    switchTab('despesas');
+    openExpenseModal(null, {
+      description: p.title,
+      category: PLAN_TO_CAT[p.type] || 'outros',
+      date: p.date,
+      amount: p.cost > 0 ? p.cost : '',
+      location: p.location ? { ...p.location } : null
+    });
+  });
 
   // ---------- Tema ----------
   function applyTheme() {
@@ -115,38 +599,150 @@
   // ==================================================================
   //  PAINEL
   // ==================================================================
+  // ==================================================================
+  //  METEOROLOGIA (Open-Meteo — grátis, sem chave)
+  // ==================================================================
+  const WMO = {
+    0: ['☀️', 'Céu limpo'], 1: ['🌤️', 'Pouco nublado'], 2: ['⛅', 'Nuvens'], 3: ['☁️', 'Nublado'],
+    45: ['🌫️', 'Nevoeiro'], 48: ['🌫️', 'Nevoeiro'],
+    51: ['🌦️', 'Chuvisco'], 53: ['🌦️', 'Chuvisco'], 55: ['🌦️', 'Chuvisco'],
+    56: ['🌧️', 'Chuvisco gelado'], 57: ['🌧️', 'Chuvisco gelado'],
+    61: ['🌧️', 'Chuva fraca'], 63: ['🌧️', 'Chuva'], 65: ['🌧️', 'Chuva forte'],
+    66: ['🌧️', 'Chuva gelada'], 67: ['🌧️', 'Chuva gelada'],
+    71: ['🌨️', 'Neve fraca'], 73: ['🌨️', 'Neve'], 75: ['🌨️', 'Neve forte'], 77: ['🌨️', 'Granizo'],
+    80: ['🌦️', 'Aguaceiros'], 81: ['🌦️', 'Aguaceiros'], 82: ['⛈️', 'Aguaceiros fortes'],
+    85: ['🌨️', 'Aguaceiros de neve'], 86: ['🌨️', 'Aguaceiros de neve'],
+    95: ['⛈️', 'Trovoada'], 96: ['⛈️', 'Trovoada'], 99: ['⛈️', 'Trovoada']
+  };
+  const wmo = (code) => WMO[code] || ['🌡️', ''];
+
+  const weatherCache = {}; // "lat,lon" -> Promise<{ date: {code,max,min} }>
+  function weatherKey(lat, lon) { return `${(+lat).toFixed(2)},${(+lon).toFixed(2)}`; }
+
+  function fetchWeather(lat, lon) {
+    const key = weatherKey(lat, lon);
+    if (weatherCache[key]) return weatherCache[key];
+    try {
+      const raw = localStorage.getItem('wx_' + key);
+      if (raw) {
+        const o = JSON.parse(raw);
+        if (Date.now() - o.t < 3 * 3600 * 1000) { weatherCache[key] = Promise.resolve(o.d); return weatherCache[key]; }
+      }
+    } catch (e) {}
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&past_days=1&forecast_days=16`;
+    weatherCache[key] = fetch(url).then(r => r.json()).then(j => {
+      const map = {}, d = j.daily || {};
+      (d.time || []).forEach((date, i) => {
+        map[date] = { code: d.weather_code[i], max: Math.round(d.temperature_2m_max[i]), min: Math.round(d.temperature_2m_min[i]) };
+      });
+      try { localStorage.setItem('wx_' + key, JSON.stringify({ t: Date.now(), d: map })); } catch (e) {}
+      return map;
+    }).catch(() => ({}));
+    return weatherCache[key];
+  }
+
+  function dayLabelShort(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    const s = d.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit' });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function renderWeatherCard(trip) {
+    const card = $('#weatherCard');
+    const p = trip.place;
+    if (!p || p.lat == null) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#weatherPlace').textContent = p.name || '';
+    const strip = $('#weatherStrip');
+    strip.innerHTML = '<span class="muted small">A carregar previsão…</span>';
+    fetchWeather(p.lat, p.lng).then(map => {
+      const dates = Object.keys(map).sort();
+      const today = todayStr();
+      let show = [];
+      if (trip.start && trip.end) show = dates.filter(dt => dt >= trip.start && dt <= trip.end).slice(0, 10);
+      if (show.length === 0) show = dates.filter(dt => dt >= today).slice(0, 7);
+      if (show.length === 0) { strip.innerHTML = '<span class="muted small">Sem previsão para estas datas (Open-Meteo dá até ~16 dias).</span>'; return; }
+      strip.innerHTML = show.map(dt => {
+        const w = map[dt], [emo] = wmo(w.code);
+        return `<div class="wx-day"><span class="wx-d">${dayLabelShort(dt)}</span>` +
+          `<span class="wx-emo">${emo}</span>` +
+          `<span class="wx-t">${w.max}°<span class="wx-min">${w.min}°</span></span></div>`;
+      }).join('');
+    });
+  }
+
+  function fillDayWeather(day, lat, lon) {
+    fetchWeather(lat, lon).then(map => {
+      const w = map[day], el = document.getElementById('wx-' + day);
+      if (el && w) { const [emo] = wmo(w.code); el.textContent = `${emo} ${w.max}°/${w.min}° · `; }
+    });
+  }
+
+  function renderCountdown(trip) {
+    const el = $('#countdown');
+    if (!trip.start) { el.hidden = true; return; }
+    const msDay = 86400000;
+    const d0 = new Date(todayStr() + 'T00:00:00');
+    const ds = new Date(trip.start + 'T00:00:00');
+    const de = new Date((trip.end || trip.start) + 'T00:00:00');
+    const toStart = Math.round((ds - d0) / msDay);
+    el.hidden = false;
+    if (toStart > 1) {
+      el.innerHTML = `✈️ Faltam <strong>${toStart}</strong> dias para a viagem!`;
+      el.className = 'countdown soon';
+    } else if (toStart === 1) {
+      el.innerHTML = `✈️ É já <strong>amanhã</strong>! 🎉`;
+      el.className = 'countdown soon';
+    } else if (d0 <= de) {
+      const dayNum = Math.round((d0 - ds) / msDay) + 1;
+      const total = Math.round((de - ds) / msDay) + 1;
+      el.innerHTML = `🎉 Estás na viagem! Dia <strong>${dayNum}</strong> de ${total}`;
+      el.className = 'countdown now';
+    } else {
+      el.innerHTML = `🏁 Viagem terminada — boas memórias!`;
+      el.className = 'countdown done';
+    }
+  }
+
   function renderDashboard() {
     const trip = activeTrip();
     const exps = tripExpenses();
     const total = exps.reduce((s, e) => s + Number(e.amount), 0);
 
+    renderCountdown(trip);
+    renderWeatherCard(trip);
     $('#tripNameLabel').textContent = trip.name;
     $('#tripDatesLabel').textContent = (trip.start && trip.end)
       ? `${prettyDate(trip.start)} – ${prettyDate(trip.end)}`
       : `${exps.length} despesa(s)`;
 
-    // Orçamento
-    $('#spentLabel').textContent = fmt(total);
-    $('#budgetLabel').textContent = trip.budget > 0 ? fmt(trip.budget) : 'definir';
-    const remain = trip.budget - total;
-    const remainEl = $('#remainLabel');
-    remainEl.textContent = fmt(remain);
-    remainEl.className = remain < 0 ? 'over' : (remain < trip.budget * 0.15 ? 'warn' : 'ok');
+    // Total gasto
+    $('#totalSpent').textContent = exps.length ? fmt(total) : fmt(0);
+    $('#totalSub').textContent = exps.length
+      ? `${exps.length} despesa${exps.length > 1 ? 's' : ''} registada${exps.length > 1 ? 's' : ''}`
+      : 'Sem despesas ainda';
 
-    const pct = trip.budget > 0 ? Math.min(total / trip.budget, 1.5) : 0;
-    const ring = $('#budgetRing');
-    const circ = 2 * Math.PI * 52;
-    ring.style.strokeDasharray = circ;
-    ring.style.strokeDashoffset = circ * (1 - Math.min(pct, 1));
-    ring.style.stroke = total > trip.budget && trip.budget > 0
-      ? 'var(--danger)' : (pct > 0.85 ? 'var(--warn)' : 'var(--primary)');
-    $('#budgetPct').textContent = trip.budget > 0 ? Math.round((total / trip.budget) * 100) + '%' : '—';
+    // Despesas do dia-a-dia (exclui as fixas, para não distorcer os dias)
+    const dailyExps = exps.filter(e => !e.fixed);
+    const dailyTotal = dailyExps.reduce((s, e) => s + Number(e.amount), 0);
+    const fixedTotal = total - dailyTotal;
+
+    // Total dividido: dia-a-dia + fixas
+    const split = $('#totalSplit');
+    if (exps.length && fixedTotal > 0) {
+      split.hidden = false;
+      $('#splitDaily').textContent = fmt(dailyTotal);
+      $('#splitFixed').textContent = fmt(fixedTotal);
+    } else {
+      split.hidden = true;
+    }
 
     // Estatísticas
     $('#statCount').textContent = exps.length;
-    const nDays = daysBetween(trip.start, trip.end) || uniqueDays(exps) || 1;
+    const nDays = daysBetween(trip.start, trip.end) || uniqueDays(dailyExps) || 1;
     $('#statDays').textContent = daysBetween(trip.start, trip.end) || uniqueDays(exps) || 0;
-    $('#statDaily').textContent = fmtShort(total / nDays);
+    $('#statDaily').textContent = fmtShort(dailyTotal / nDays);
 
     // Categoria maior
     const byCat = groupByCategory(exps);
@@ -154,7 +750,7 @@
     $('#statTopCat').textContent = top ? catById(top[0]).emoji + ' ' + catById(top[0]).name : '—';
 
     drawDonut(byCat, total);
-    drawBars(exps);
+    drawBars(dailyExps);
     renderSettlement(trip, exps);
   }
 
@@ -243,10 +839,11 @@
     const max = Math.max(...days.map(d => byDay[d]));
     const pad = 28, bw = (w - pad) / days.length;
     const barW = Math.min(bw * 0.62, 40);
+    const topPad = 30; // espaço em cima para o valor
 
     days.forEach((d, i) => {
       const val = byDay[d];
-      const bh = max > 0 ? (val / max) * (h - 48) : 0;
+      const bh = max > 0 ? (val / max) * (h - 26 - topPad) : 0;
       const x = pad / 2 + i * bw + (bw - barW) / 2;
       const y = h - 26 - bh;
       const grad = ctx.createLinearGradient(0, y, 0, h - 26);
@@ -256,9 +853,15 @@
       roundRect(ctx, x, y, barW, bh, 6);
       ctx.fill();
 
+      // valor por cima da barra
+      ctx.fillStyle = getCss('--text');
+      ctx.font = '700 9.5px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(fmtShort(val), x + barW / 2, y - 5);
+
+      // data por baixo
       ctx.fillStyle = getCss('--muted');
       ctx.font = '10px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
       const label = new Date(d + 'T00:00:00').toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
       ctx.fillText(label, x + barW / 2, h - 10);
     });
@@ -334,12 +937,18 @@
   // ==================================================================
   //  DESPESAS (lista)
   // ==================================================================
+  const collapsedDays = new Set();   // dias recolhidos (por data)
+  let expView = 'dia';               // 'dia' ou 'fixas'
+
   function renderExpenses() {
     populateCatFilter();
     const term = ($('#searchInput').value || '').toLowerCase();
     const catFilter = $('#filterCat').value;
     let exps = tripExpenses().slice().sort((a, b) =>
       (b.date.localeCompare(a.date)) || (b.createdAt - a.createdAt));
+
+    // separar por vista: fixas vs por dia
+    exps = exps.filter(e => expView === 'fixas' ? e.fixed : !e.fixed);
 
     if (term) exps = exps.filter(e =>
       (e.description || '').toLowerCase().includes(term) ||
@@ -349,22 +958,125 @@
     const list = $('#expenseList');
     const empty = $('#expenseEmpty');
     list.innerHTML = '';
-    if (exps.length === 0) { empty.hidden = false; return; }
+    if (exps.length === 0) {
+      empty.hidden = false;
+      empty.querySelector('p').textContent = expView === 'fixas'
+        ? 'Ainda não há despesas fixas.' : 'Ainda não há despesas.';
+      return;
+    }
     empty.hidden = true;
 
-    exps.forEach(e => {
-      const c = catById(e.category);
-      const li = document.createElement('li');
-      li.innerHTML = `
-        <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
-        <div class="exp-body">
-          <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
-          <div class="exp-meta">${prettyDate(e.date)} · ${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
-        </div>
-        <div class="exp-amt">${fmt(e.amount)}</div>`;
-      li.addEventListener('click', () => openExpenseModal(e));
-      list.appendChild(li);
+    // Vista "Fixas": lista simples com total, sem agrupar por dia
+    if (expView === 'fixas') {
+      const totalFix = exps.reduce((s, e) => s + Number(e.amount), 0);
+      const head = document.createElement('div');
+      head.className = 'day-head';
+      head.innerHTML = `<span class="day-title">Despesas fixas</span>
+        <span class="day-sum"><strong>${fmt(totalFix)}</strong></span>`;
+      list.appendChild(head);
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      exps.forEach(e => group.appendChild(renderExpenseItem(e, false, true)));
+      list.appendChild(group);
+      return;
+    }
+
+    // Arrastar para reordenar só faz sentido na vista completa (sem filtros)
+    const canSort = !term && !catFilter;
+
+    // Agrupar por dia (mais recente primeiro)
+    const byDay = {};
+    exps.forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+    const days = Object.keys(byDay).sort((a, b) => b.localeCompare(a));
+    const orderKey = (e) => (e.order != null ? e.order : (e.createdAt || 0));
+
+    days.forEach(day => {
+      const items = byDay[day].sort((a, b) => orderKey(a) - orderKey(b));
+      const dayTotal = items.reduce((s, e) => s + Number(e.amount), 0);
+      const collapsed = collapsedDays.has(day);
+
+      const head = document.createElement('div');
+      head.className = 'day-head' + (collapsed ? ' collapsed' : '');
+      head.innerHTML = `
+        <span class="day-title">${dayLabel(day)}</span>
+        <span class="day-sum">${items.length} · <strong>${fmt(dayTotal)}</strong>
+          <span class="chev" aria-hidden="true">▾</span></span>`;
+      head.addEventListener('click', () => {
+        if (collapsedDays.has(day)) collapsedDays.delete(day);
+        else collapsedDays.add(day);
+        renderExpenses();
+      });
+      list.appendChild(head);
+
+      if (collapsed) return;
+
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      group.dataset.day = day;
+      items.forEach(e => group.appendChild(renderExpenseItem(e, canSort)));
+      list.appendChild(group);
+
+      if (canSort && window.Sortable) {
+        new Sortable(group, {
+          handle: '.drag-handle',
+          animation: 150,
+          delayOnTouchOnly: true,
+          delay: 120,
+          ghostClass: 'exp-ghost',
+          chosenClass: 'exp-chosen',
+          onEnd: () => saveDayOrder(group)
+        });
+      }
     });
+  }
+
+  // Guarda a ordem manual das despesas de um dia (após arrastar)
+  function saveDayOrder(group) {
+    const ids = Array.from(group.children).map(el => el.dataset.id);
+    ids.forEach((id, i) => {
+      const e = state.expenses.find(x => x.id === id);
+      if (e) { e.order = i; pushExpense(e); }
+    });
+    save();
+    toast('Ordem guardada ✅');
+  }
+
+  function renderExpenseItem(e, canSort, showDate) {
+    const c = catById(e.category);
+    const item = document.createElement('div');
+    item.className = 'exp-item';
+    item.dataset.id = e.id;
+    const locHtml = (e.location && (e.location.name || e.location.lat != null))
+      ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
+      : '';
+    const handle = canSort ? `<div class="drag-handle" title="Arrastar">⠿</div>` : '';
+    const metaDate = showDate ? prettyDate(e.date) + ' · ' : '';
+    item.innerHTML = `
+      ${handle}
+      <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
+      <div class="exp-body">
+        <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
+        <div class="exp-meta">${metaDate}${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
+        ${locHtml}
+      </div>
+      <div class="exp-amt">${fmt(e.amount)}</div>`;
+    item.addEventListener('click', () => openExpenseModal(e));
+    const locEl = item.querySelector('.exp-loc');
+    if (locEl) locEl.addEventListener('click', (ev) => ev.stopPropagation());
+    const h = item.querySelector('.drag-handle');
+    if (h) h.addEventListener('click', (ev) => ev.stopPropagation());
+    return item;
+  }
+
+  // Etiqueta amigável do dia (Hoje / Ontem / sex, 15 ago)
+  function dayLabel(iso) {
+    const today = todayStr();
+    const yst = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    if (iso === today) return 'Hoje';
+    if (iso === yst) return 'Ontem';
+    const d = new Date(iso + 'T00:00:00');
+    const s = d.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit', month: 'short' });
+    return s.charAt(0).toUpperCase() + s.slice(1);
   }
 
   function populateCatFilter() {
@@ -379,6 +1091,13 @@
   }
   $('#searchInput').addEventListener('input', renderExpenses);
   $('#filterCat').addEventListener('change', renderExpenses);
+  $$('#expSeg .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      expView = btn.dataset.view;
+      $$('#expSeg .seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderExpenses();
+    });
+  });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m =>
@@ -390,6 +1109,121 @@
   // ==================================================================
   let selectedCat = 'comida';
   let selectedSplit = [];
+  let selectedLoc = null;   // localização da despesa { name, lat, lng }
+  let planSelLoc = null;    // localização da atividade do roteiro
+  let tripSelLoc = null;    // destino da viagem (meteorologia)
+  let mapPickTarget = 'expense';  // para onde o seletor de mapa escreve
+
+  // ---------- Localização (GPS + Google Maps) ----------
+  function mapUrl(loc) {
+    if (!loc) return '';
+    if (loc.lat != null && loc.lng != null)
+      return `https://www.google.com/maps/search/?api=1&query=${loc.lat},${loc.lng}`;
+    if (loc.name)
+      return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc.name)}`;
+    return '';
+  }
+
+  function updateLocLink() {
+    const link = $('#locLink');
+    const name = $('#expenseLoc').value.trim();
+    const loc = (name || selectedLoc) ? { name, lat: selectedLoc && selectedLoc.lat, lng: selectedLoc && selectedLoc.lng } : null;
+    const url = mapUrl(loc);
+    if (url) { link.href = url; link.hidden = false; }
+    else { link.hidden = true; }
+  }
+
+  function updatePlanLocLink() {
+    const link = $('#planLocLink');
+    const name = $('#planLoc').value.trim();
+    const loc = (name || planSelLoc) ? { name, lat: planSelLoc && planSelLoc.lat, lng: planSelLoc && planSelLoc.lng } : null;
+    const url = mapUrl(loc);
+    if (url) { link.href = url; link.hidden = false; }
+    else { link.hidden = true; }
+  }
+
+  // Escolher local tocando no mapa (Leaflet + OpenStreetMap)
+  let pickMap = null, pickMarker = null, pickLoc = null;
+
+  function prettyName(d) {
+    const a = (d && d.address) || {};
+    const parts = [a.amenity || a.shop || a.tourism || a.building || a.road,
+                   a.city || a.town || a.village || a.municipality];
+    return parts.filter(Boolean).join(', ') || (d && d.display_name) || '';
+  }
+
+  function placePin(lat, lng) {
+    const icon = L.divIcon({ className: 'pin-icon', html: '📍', iconSize: [32, 32], iconAnchor: [16, 30] });
+    if (pickMarker) pickMarker.setLatLng([lat, lng]);
+    else pickMarker = L.marker([lat, lng], { icon }).addTo(pickMap);
+  }
+
+  function setPick(lat, lng, name, doReverse) {
+    lat = +(+lat).toFixed(6); lng = +(+lng).toFixed(6);
+    pickLoc = { name: name || '', lat, lng };
+    placePin(lat, lng);
+    $('#mapHint').textContent = name || 'A obter o nome do local…';
+    if (doReverse && !name) {
+      fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&zoom=18&accept-language=pt`)
+        .then(r => r.json())
+        .then(d => { pickLoc.name = prettyName(d); $('#mapHint').textContent = pickLoc.name || 'Local marcado 📍'; })
+        .catch(() => { $('#mapHint').textContent = 'Local marcado 📍'; });
+    }
+  }
+
+  function openMapPicker(target) {
+    if (typeof L === 'undefined') { toast('Mapa indisponível (sem ligação)'); return; }
+    mapPickTarget = target || 'expense';
+    showModal('#mapModal');
+    const base = mapPickTarget === 'plan' ? planSelLoc
+      : mapPickTarget === 'trip' ? tripSelLoc : selectedLoc;
+    pickLoc = base ? { ...base } : null;
+    setTimeout(() => {
+      if (!pickMap) {
+        pickMap = L.map('mapPick', { zoomControl: true });
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19, attribution: '© OpenStreetMap'
+        }).addTo(pickMap);
+        pickMap.on('click', (ev) => setPick(ev.latlng.lat, ev.latlng.lng, null, true));
+      }
+      pickMap.invalidateSize();
+      if (pickLoc && pickLoc.lat != null) {
+        pickMap.setView([pickLoc.lat, pickLoc.lng], 15);
+        placePin(pickLoc.lat, pickLoc.lng);
+        $('#mapHint').textContent = pickLoc.name || 'Local marcado 📍';
+      } else {
+        if (pickMarker) { pickMap.removeLayer(pickMarker); pickMarker = null; }
+        pickMap.setView([39.5, -8.0], 6); // Portugal por defeito
+        $('#mapHint').textContent = 'Toca no mapa para marcar o local.';
+      }
+    }, 250);
+  }
+
+  function searchMapPlace() {
+    const q = $('#mapSearch').value.trim();
+    if (!q || !pickMap) return;
+    $('#mapHint').textContent = 'A procurar…';
+    fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(q)}&accept-language=pt&limit=1`)
+      .then(r => r.json())
+      .then(list => {
+        if (!list.length) { $('#mapHint').textContent = 'Não encontrei esse sítio 🤔'; return; }
+        const it = list[0];
+        const name = it.display_name.split(',').slice(0, 2).join(',').trim();
+        pickMap.setView([+it.lat, +it.lon], 16);
+        setPick(it.lat, it.lon, name, false);
+      })
+      .catch(() => { $('#mapHint').textContent = 'Falha na procura 😕'; });
+  }
+
+  function buildLocation() {
+    const name = $('#expenseLoc').value.trim();
+    if (!name && !selectedLoc) return null;
+    return {
+      name: name || (selectedLoc && selectedLoc.name) || '',
+      lat: selectedLoc && selectedLoc.lat != null ? selectedLoc.lat : null,
+      lng: selectedLoc && selectedLoc.lng != null ? selectedLoc.lng : null
+    };
+  }
 
   function buildCatPicker() {
     const wrap = $('#catPicker');
@@ -407,20 +1241,28 @@
     });
   }
 
-  function openExpenseModal(exp) {
+  function openExpenseModal(exp, prefill) {
     const trip = activeTrip();
     buildCatPicker();
     $('#curBadge').textContent = CURRENCIES[trip.currency];
 
     const isEdit = !!exp;
+    const pre = prefill || {};
     $('#expenseModalTitle').textContent = isEdit ? 'Editar despesa' : 'Nova despesa';
     $('#deleteExpenseBtn').hidden = !isEdit;
     $('#expenseId').value = isEdit ? exp.id : '';
-    $('#expenseAmount').value = isEdit ? exp.amount : '';
-    $('#expenseDesc').value = isEdit ? (exp.description || '') : '';
-    $('#expenseDate').value = isEdit ? exp.date : todayStr();
-    selectedCat = isEdit ? exp.category : 'comida';
+    $('#expenseAmount').value = isEdit ? exp.amount : (pre.amount || '');
+    $('#expenseDesc').value = isEdit ? (exp.description || '') : (pre.description || '');
+    $('#expenseDate').value = isEdit ? exp.date : (pre.date || todayStr());
+    selectedCat = isEdit ? exp.category : (pre.category || 'comida');
     buildCatPicker();
+
+    // localização
+    const loc = isEdit ? exp.location : pre.location;
+    selectedLoc = loc ? { ...loc } : null;
+    $('#expenseLoc').value = loc ? (loc.name || '') : '';
+    updateLocLink();
+    $('#expenseFixed').checked = isEdit ? !!exp.fixed : (expView === 'fixas' || !!pre.fixed);
 
     // pessoas / divisão
     const people = trip.people || [];
@@ -475,14 +1317,19 @@
       category: selectedCat,
       date: $('#expenseDate').value || todayStr(),
       paidBy: (trip.people || []).length ? $('#expensePaidBy').value : '',
-      splitAmong: (trip.people || []).length ? selectedSplit.slice() : []
+      splitAmong: (trip.people || []).length ? selectedSplit.slice() : [],
+      location: buildLocation(),
+      fixed: $('#expenseFixed').checked
     };
     if (id) {
       const e = state.expenses.find(x => x.id === id);
       Object.assign(e, data);
+      pushExpense(e);
       toast('Despesa atualizada ✅');
     } else {
-      state.expenses.push({ id: uid(), tripId: trip.id, createdAt: Date.now(), ...data });
+      const exp = { id: uid(), tripId: trip.id, createdAt: Date.now(), ...data };
+      state.expenses.push(exp);
+      pushExpense(exp);
       toast('Despesa adicionada 🎉');
     }
     save();
@@ -494,6 +1341,7 @@
     const id = $('#expenseId').value;
     if (!id) return;
     if (!confirm('Eliminar esta despesa?')) return;
+    delExpenseCloud(id);
     state.expenses = state.expenses.filter(e => e.id !== id);
     save();
     closeModal('#expenseModal');
@@ -501,7 +1349,46 @@
     toast('Despesa eliminada');
   });
 
-  $('#addExpenseBtn').addEventListener('click', () => openExpenseModal(null));
+  $('#addExpenseBtn').addEventListener('click', () => {
+    const active = document.querySelector('.tab-btn.active');
+    if (active && active.dataset.tab === 'roteiro') openPlanModal(null);
+    else openExpenseModal(null);
+  });
+  $('#expenseLoc').addEventListener('input', () => {
+    if (selectedLoc) selectedLoc.name = $('#expenseLoc').value.trim();
+    updateLocLink();
+  });
+  $('#mapPickBtn').addEventListener('click', () => openMapPicker('expense'));
+  $('#planMapBtn').addEventListener('click', () => openMapPicker('plan'));
+  $('#planLoc').addEventListener('input', () => {
+    if (planSelLoc) planSelLoc.name = $('#planLoc').value.trim();
+    updatePlanLocLink();
+  });
+  $('#mapSearchBtn').addEventListener('click', searchMapPlace);
+  $('#mapSearch').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); searchMapPlace(); }
+  });
+  $('#mapClearBtn').addEventListener('click', () => {
+    pickLoc = null;
+    if (pickMarker && pickMap) { pickMap.removeLayer(pickMarker); pickMarker = null; }
+    $('#mapHint').textContent = 'Toca no mapa para marcar o local.';
+  });
+  $('#mapConfirmBtn').addEventListener('click', () => {
+    if (mapPickTarget === 'plan') {
+      planSelLoc = pickLoc ? { ...pickLoc } : null;
+      $('#planLoc').value = planSelLoc ? (planSelLoc.name || '') : '';
+      updatePlanLocLink();
+    } else if (mapPickTarget === 'trip') {
+      tripSelLoc = pickLoc ? { ...pickLoc } : null;
+      $('#tripPlace').value = tripSelLoc ? (tripSelLoc.name || '') : '';
+    } else {
+      selectedLoc = pickLoc ? { ...pickLoc } : null;
+      $('#expenseLoc').value = selectedLoc ? (selectedLoc.name || '') : '';
+      updateLocLink();
+    }
+    closeModal('#mapModal');
+  });
+  $('#tripMapBtn').addEventListener('click', () => openMapPicker('trip'));
 
   // ==================================================================
   //  VIAGENS
@@ -517,7 +1404,7 @@
       li.innerHTML = `
         <div>
           <div class="t-name">${escapeHtml(t.name)} ${t.id === state.activeTrip ? '<span class="badge-active">ativa</span>' : ''}</div>
-          <div class="t-meta">${fmt(spent, t.currency)} gasto${t.budget > 0 ? ' · orç. ' + fmt(t.budget, t.currency) : ''}</div>
+          <div class="t-meta">${fmt(spent, t.currency)} gasto</div>
         </div>
         <button class="icon-btn" data-edit title="Editar">✎</button>`;
       li.addEventListener('click', (ev) => {
@@ -541,6 +1428,7 @@
       chip.innerHTML = `${escapeHtml(p)} <button data-p="${escapeAttr(p)}" aria-label="Remover">✕</button>`;
       chip.querySelector('button').addEventListener('click', () => {
         trip.people = trip.people.filter(x => x !== p);
+        pushTrip(trip);
         save(); renderPeople();
       });
       list.appendChild(chip);
@@ -557,6 +1445,7 @@
     trip.people = trip.people || [];
     if (trip.people.includes(name)) { toast('Essa pessoa já existe'); return; }
     trip.people.push(name);
+    pushTrip(trip);
     inp.value = '';
     save(); renderPeople();
   }
@@ -569,8 +1458,9 @@
     $('#tripNameInput').value = isEdit ? trip.name : '';
     $('#tripStart').value = isEdit ? (trip.start || '') : '';
     $('#tripEnd').value = isEdit ? (trip.end || '') : '';
-    $('#tripBudget').value = isEdit && trip.budget ? trip.budget : '';
     $('#tripCurrency').value = isEdit ? trip.currency : 'EUR';
+    tripSelLoc = isEdit && trip.place ? { ...trip.place } : null;
+    $('#tripPlace').value = isEdit && trip.place ? (trip.place.name || '') : '';
     showModal('#tripModal');
   }
 
@@ -580,21 +1470,28 @@
   $('#tripForm').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const id = $('#tripId').value;
+    const placeName = $('#tripPlace').value.trim();
     const data = {
       name: $('#tripNameInput').value.trim() || 'Viagem',
       start: $('#tripStart').value,
       end: $('#tripEnd').value,
-      budget: parseFloat($('#tripBudget').value) || 0,
-      currency: $('#tripCurrency').value
+      currency: $('#tripCurrency').value,
+      place: (placeName || tripSelLoc) ? {
+        name: placeName || (tripSelLoc && tripSelLoc.name) || '',
+        lat: tripSelLoc && tripSelLoc.lat != null ? tripSelLoc.lat : null,
+        lng: tripSelLoc && tripSelLoc.lng != null ? tripSelLoc.lng : null
+      } : null
     };
     if (id) {
       const t = state.trips.find(x => x.id === id);
       Object.assign(t, data);
+      pushTrip(t);
       toast('Viagem atualizada ✅');
     } else {
       const t = { id: uid(), people: [], ...data };
       state.trips.push(t);
       state.activeTrip = t.id;
+      pushTrip(t);
       toast('Viagem criada 🧳');
     }
     save();
@@ -607,28 +1504,15 @@
     const id = $('#tripId').value;
     if (!id || state.trips.length <= 1) return;
     if (!confirm('Eliminar esta viagem e todas as suas despesas?')) return;
+    delTripCloud(id);
     state.trips = state.trips.filter(t => t.id !== id);
     state.expenses = state.expenses.filter(e => e.tripId !== id);
+    state.plans = (state.plans || []).filter(p => p.tripId !== id);
     if (state.activeTrip === id) state.activeTrip = state.trips[0].id;
     save();
     closeModal('#tripModal');
     refreshAll();
     toast('Viagem eliminada');
-  });
-
-  // ---------- Orçamento rápido ----------
-  $('#editBudgetBtn').addEventListener('click', () => {
-    $('#budgetInput').value = activeTrip().budget || '';
-    showModal('#budgetModal');
-    setTimeout(() => $('#budgetInput').focus(), 200);
-  });
-  $('#budgetForm').addEventListener('submit', (ev) => {
-    ev.preventDefault();
-    activeTrip().budget = parseFloat($('#budgetInput').value) || 0;
-    save();
-    closeModal('#budgetModal');
-    renderDashboard();
-    toast('Orçamento guardado 💰');
   });
 
   // ==================================================================
@@ -638,12 +1522,13 @@
     const exps = tripExpenses();
     if (exps.length === 0) { toast('Sem despesas para exportar'); return; }
     const trip = activeTrip();
-    const rows = [['Data', 'Categoria', 'Descrição', 'Valor', 'Moeda', 'Pago por', 'Dividido entre']];
+    const rows = [['Data', 'Categoria', 'Descrição', 'Valor', 'Moeda', 'Pago por', 'Dividido entre', 'Local', 'Mapa']];
     exps.slice().sort((a, b) => a.date.localeCompare(b.date)).forEach(e => {
       rows.push([
         e.date, catById(e.category).name, e.description || '',
         String(e.amount).replace('.', ','), trip.currency,
-        e.paidBy || '', (e.splitAmong || []).join(' / ')
+        e.paidBy || '', (e.splitAmong || []).join(' / '),
+        (e.location && e.location.name) || '', mapUrl(e.location)
       ]);
     });
     const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(';')).join('\n');
@@ -668,6 +1553,7 @@
         state = data;
         if (!state.theme) state.theme = 'light';
         save(); applyTheme(); refreshAll();
+        pushAllCloud();
         toast('Dados importados ✅');
       } catch (e) { toast('Ficheiro inválido 😕'); }
     };
@@ -690,7 +1576,11 @@
   //  MODAIS: abrir/fechar
   // ==================================================================
   function showModal(sel) { $(sel).hidden = false; document.body.style.overflow = 'hidden'; }
-  function closeModal(sel) { $(sel).hidden = true; document.body.style.overflow = ''; }
+  function closeModal(sel) {
+    $(sel).hidden = true;
+    // só liberta o scroll do fundo se não houver outro pop-up aberto
+    if (!document.querySelector('.modal-backdrop:not([hidden])')) document.body.style.overflow = '';
+  }
   $$('.modal-backdrop').forEach(bd => {
     bd.addEventListener('click', (e) => {
       if (e.target === bd || e.target.closest('[data-close]')) closeModal('#' + bd.id);
@@ -704,6 +1594,8 @@
     if (tab === 'painel') renderDashboard();
     if (tab === 'despesas') renderExpenses();
     if (tab === 'viagens') renderTrips();
+    if (tab === 'mapa') renderMap();
+    if (tab === 'roteiro') renderItinerary();
     // manter o painel sempre coerente em background
     if (tab !== 'painel') renderDashboard();
   }
@@ -713,15 +1605,112 @@
   });
 
   // ==================================================================
+  //  BLOQUEIO POR PALAVRA-PASSE (bloqueio simples)
+  // ==================================================================
+  const LS_HASH = 'ferias_passhash';
+  const LS_UNLOCKED = 'ferias_unlocked';
+
+  async function sha256(str) {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  }
+  const currentHash = () => localStorage.getItem(LS_HASH) || '';
+  const isUnlocked = () => localStorage.getItem(LS_UNLOCKED) === '1';
+
+  function setPassHashLocal(hash) {
+    if (hash) localStorage.setItem(LS_HASH, hash);
+    else { localStorage.removeItem(LS_HASH); localStorage.removeItem(LS_UNLOCKED); }
+    refreshLock();
+    updatePassStatus();
+  }
+  function refreshLock() {
+    if (currentHash() && !isUnlocked()) {
+      $('#lockScreen').hidden = false;
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => $('#lockInput').focus(), 200);
+    } else {
+      $('#lockScreen').hidden = true;
+      if (!document.querySelector('.modal-backdrop:not([hidden])')) document.body.style.overflow = '';
+    }
+  }
+  async function tryUnlock() {
+    const h = await sha256($('#lockInput').value);
+    if (h && h === currentHash()) {
+      localStorage.setItem(LS_UNLOCKED, '1');
+      $('#lockInput').value = '';
+      $('#lockError').hidden = true;
+      refreshLock();
+    } else {
+      $('#lockError').hidden = false;
+    }
+  }
+  $('#lockBtn').addEventListener('click', tryUnlock);
+  $('#lockInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryUnlock(); } });
+
+  function updatePassStatus() {
+    const el = $('#passStatus');
+    if (el) el.textContent = currentHash()
+      ? 'A app pede palavra-passe na primeira vez em cada dispositivo. 🔒'
+      : 'A app não pede palavra-passe.';
+  }
+  function openPassModal() {
+    const has = !!currentHash();
+    $('#passModalTitle').textContent = has ? 'Alterar palavra-passe' : 'Definir palavra-passe';
+    $('#passHint').textContent = has
+      ? 'Escreve a nova palavra-passe (substitui a atual em todos os dispositivos).'
+      : 'Define uma palavra-passe para entrar na app. Vai ser pedida a cada dispositivo na primeira vez.';
+    $('#passRemoveBtn').hidden = !has;
+    $('#passNew').value = '';
+    $('#passConfirm').value = '';
+    showModal('#passModal');
+    setTimeout(() => $('#passNew').focus(), 200);
+  }
+  $('#openPassBtn').addEventListener('click', openPassModal);
+
+  $('#passForm').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const n = $('#passNew').value, c = $('#passConfirm').value;
+    if (n.length < 3) { toast('Mínimo 3 caracteres'); return; }
+    if (n !== c) { toast('As palavras-passe não coincidem'); return; }
+    const h = await sha256(n);
+    localStorage.setItem(LS_HASH, h);
+    localStorage.setItem(LS_UNLOCKED, '1');   // este dispositivo fica desbloqueado
+    pushPassHash(h);
+    updatePassStatus();
+    closeModal('#passModal');
+    toast('Palavra-passe definida 🔒');
+  });
+
+  $('#passRemoveBtn').addEventListener('click', () => {
+    if (!confirm('Remover a palavra-passe? A app deixa de a pedir.')) return;
+    setPassHashLocal('');
+    pushPassHash('');
+    closeModal('#passModal');
+    toast('Palavra-passe removida');
+  });
+
+  // ==================================================================
   //  Arranque
   // ==================================================================
   applyTheme();
   renderDashboard();
+  refreshLock();
+  updatePassStatus();
+  initCloud();
 
-  // Service worker (offline)
+  // Service worker (offline) + atualização automática
   if ('serviceWorker' in navigator) {
+    const hadController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hadController || refreshing) return;  // não recarrega na 1ª instalação
+      refreshing = true;
+      location.reload();                         // versão nova pronta → aplica
+    });
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('sw.js').catch(() => {});
+      navigator.serviceWorker.register('sw.js')
+        .then(reg => reg.update())
+        .catch(() => {});
     });
   }
 })();
