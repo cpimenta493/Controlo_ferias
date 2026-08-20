@@ -374,6 +374,7 @@
   let selectedPlanType = 'atividade';
 
   function renderItinerary() {
+    const trip = activeTrip();
     const plans = tripPlans();
     const list = $('#planList');
     const empty = $('#planEmpty');
@@ -402,8 +403,13 @@
       head.className = 'day-head' + (collapsed ? ' collapsed' : '');
       head.innerHTML = `
         <span class="day-title">${dayLabel(day)}</span>
-        <span class="day-sum">${doneCount}/${items.length} feito${dayCost > 0 ? ' · ' + fmt(dayCost) : ''}
+        <span class="day-sum"><span class="day-wx" id="wx-${day}"></span>${doneCount}/${items.length} feito${dayCost > 0 ? ' · ' + fmt(dayCost) : ''}
           <span class="chev" aria-hidden="true">▾</span></span>`;
+
+      // meteorologia do dia: local marcado nesse dia, senão o destino da viagem
+      const withLoc = items.find(p => p.location && p.location.lat != null);
+      const coords = withLoc ? withLoc.location : (trip.place && trip.place.lat != null ? trip.place : null);
+      if (coords) fillDayWeather(day, coords.lat, coords.lng);
       head.addEventListener('click', () => {
         if (collapsedPlanDays.has(day)) collapsedPlanDays.delete(day);
         else collapsedPlanDays.add(day);
@@ -593,6 +599,86 @@
   // ==================================================================
   //  PAINEL
   // ==================================================================
+  // ==================================================================
+  //  METEOROLOGIA (Open-Meteo — grátis, sem chave)
+  // ==================================================================
+  const WMO = {
+    0: ['☀️', 'Céu limpo'], 1: ['🌤️', 'Pouco nublado'], 2: ['⛅', 'Nuvens'], 3: ['☁️', 'Nublado'],
+    45: ['🌫️', 'Nevoeiro'], 48: ['🌫️', 'Nevoeiro'],
+    51: ['🌦️', 'Chuvisco'], 53: ['🌦️', 'Chuvisco'], 55: ['🌦️', 'Chuvisco'],
+    56: ['🌧️', 'Chuvisco gelado'], 57: ['🌧️', 'Chuvisco gelado'],
+    61: ['🌧️', 'Chuva fraca'], 63: ['🌧️', 'Chuva'], 65: ['🌧️', 'Chuva forte'],
+    66: ['🌧️', 'Chuva gelada'], 67: ['🌧️', 'Chuva gelada'],
+    71: ['🌨️', 'Neve fraca'], 73: ['🌨️', 'Neve'], 75: ['🌨️', 'Neve forte'], 77: ['🌨️', 'Granizo'],
+    80: ['🌦️', 'Aguaceiros'], 81: ['🌦️', 'Aguaceiros'], 82: ['⛈️', 'Aguaceiros fortes'],
+    85: ['🌨️', 'Aguaceiros de neve'], 86: ['🌨️', 'Aguaceiros de neve'],
+    95: ['⛈️', 'Trovoada'], 96: ['⛈️', 'Trovoada'], 99: ['⛈️', 'Trovoada']
+  };
+  const wmo = (code) => WMO[code] || ['🌡️', ''];
+
+  const weatherCache = {}; // "lat,lon" -> Promise<{ date: {code,max,min} }>
+  function weatherKey(lat, lon) { return `${(+lat).toFixed(2)},${(+lon).toFixed(2)}`; }
+
+  function fetchWeather(lat, lon) {
+    const key = weatherKey(lat, lon);
+    if (weatherCache[key]) return weatherCache[key];
+    try {
+      const raw = localStorage.getItem('wx_' + key);
+      if (raw) {
+        const o = JSON.parse(raw);
+        if (Date.now() - o.t < 3 * 3600 * 1000) { weatherCache[key] = Promise.resolve(o.d); return weatherCache[key]; }
+      }
+    } catch (e) {}
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}` +
+      `&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&past_days=1&forecast_days=16`;
+    weatherCache[key] = fetch(url).then(r => r.json()).then(j => {
+      const map = {}, d = j.daily || {};
+      (d.time || []).forEach((date, i) => {
+        map[date] = { code: d.weather_code[i], max: Math.round(d.temperature_2m_max[i]), min: Math.round(d.temperature_2m_min[i]) };
+      });
+      try { localStorage.setItem('wx_' + key, JSON.stringify({ t: Date.now(), d: map })); } catch (e) {}
+      return map;
+    }).catch(() => ({}));
+    return weatherCache[key];
+  }
+
+  function dayLabelShort(iso) {
+    const d = new Date(iso + 'T00:00:00');
+    const s = d.toLocaleDateString('pt-PT', { weekday: 'short', day: '2-digit' });
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  }
+
+  function renderWeatherCard(trip) {
+    const card = $('#weatherCard');
+    const p = trip.place;
+    if (!p || p.lat == null) { card.hidden = true; return; }
+    card.hidden = false;
+    $('#weatherPlace').textContent = p.name || '';
+    const strip = $('#weatherStrip');
+    strip.innerHTML = '<span class="muted small">A carregar previsão…</span>';
+    fetchWeather(p.lat, p.lng).then(map => {
+      const dates = Object.keys(map).sort();
+      const today = todayStr();
+      let show = [];
+      if (trip.start && trip.end) show = dates.filter(dt => dt >= trip.start && dt <= trip.end).slice(0, 10);
+      if (show.length === 0) show = dates.filter(dt => dt >= today).slice(0, 7);
+      if (show.length === 0) { strip.innerHTML = '<span class="muted small">Sem previsão para estas datas (Open-Meteo dá até ~16 dias).</span>'; return; }
+      strip.innerHTML = show.map(dt => {
+        const w = map[dt], [emo] = wmo(w.code);
+        return `<div class="wx-day"><span class="wx-d">${dayLabelShort(dt)}</span>` +
+          `<span class="wx-emo">${emo}</span>` +
+          `<span class="wx-t">${w.max}°<span class="wx-min">${w.min}°</span></span></div>`;
+      }).join('');
+    });
+  }
+
+  function fillDayWeather(day, lat, lon) {
+    fetchWeather(lat, lon).then(map => {
+      const w = map[day], el = document.getElementById('wx-' + day);
+      if (el && w) { const [emo] = wmo(w.code); el.textContent = `${emo} ${w.max}°/${w.min}° · `; }
+    });
+  }
+
   function renderCountdown(trip) {
     const el = $('#countdown');
     if (!trip.start) { el.hidden = true; return; }
@@ -625,6 +711,7 @@
     const total = exps.reduce((s, e) => s + Number(e.amount), 0);
 
     renderCountdown(trip);
+    renderWeatherCard(trip);
     $('#tripNameLabel').textContent = trip.name;
     $('#tripDatesLabel').textContent = (trip.start && trip.end)
       ? `${prettyDate(trip.start)} – ${prettyDate(trip.end)}`
@@ -970,6 +1057,7 @@
   let selectedSplit = [];
   let selectedLoc = null;   // localização da despesa { name, lat, lng }
   let planSelLoc = null;    // localização da atividade do roteiro
+  let tripSelLoc = null;    // destino da viagem (meteorologia)
   let mapPickTarget = 'expense';  // para onde o seletor de mapa escreve
 
   // ---------- Localização (GPS + Google Maps) ----------
@@ -1033,7 +1121,8 @@
     if (typeof L === 'undefined') { toast('Mapa indisponível (sem ligação)'); return; }
     mapPickTarget = target || 'expense';
     showModal('#mapModal');
-    const base = mapPickTarget === 'plan' ? planSelLoc : selectedLoc;
+    const base = mapPickTarget === 'plan' ? planSelLoc
+      : mapPickTarget === 'trip' ? tripSelLoc : selectedLoc;
     pickLoc = base ? { ...base } : null;
     setTimeout(() => {
       if (!pickMap) {
@@ -1233,6 +1322,9 @@
       planSelLoc = pickLoc ? { ...pickLoc } : null;
       $('#planLoc').value = planSelLoc ? (planSelLoc.name || '') : '';
       updatePlanLocLink();
+    } else if (mapPickTarget === 'trip') {
+      tripSelLoc = pickLoc ? { ...pickLoc } : null;
+      $('#tripPlace').value = tripSelLoc ? (tripSelLoc.name || '') : '';
     } else {
       selectedLoc = pickLoc ? { ...pickLoc } : null;
       $('#expenseLoc').value = selectedLoc ? (selectedLoc.name || '') : '';
@@ -1240,6 +1332,7 @@
     }
     closeModal('#mapModal');
   });
+  $('#tripMapBtn').addEventListener('click', () => openMapPicker('trip'));
 
   // ==================================================================
   //  VIAGENS
@@ -1310,6 +1403,8 @@
     $('#tripStart').value = isEdit ? (trip.start || '') : '';
     $('#tripEnd').value = isEdit ? (trip.end || '') : '';
     $('#tripCurrency').value = isEdit ? trip.currency : 'EUR';
+    tripSelLoc = isEdit && trip.place ? { ...trip.place } : null;
+    $('#tripPlace').value = isEdit && trip.place ? (trip.place.name || '') : '';
     showModal('#tripModal');
   }
 
@@ -1319,11 +1414,17 @@
   $('#tripForm').addEventListener('submit', (ev) => {
     ev.preventDefault();
     const id = $('#tripId').value;
+    const placeName = $('#tripPlace').value.trim();
     const data = {
       name: $('#tripNameInput').value.trim() || 'Viagem',
       start: $('#tripStart').value,
       end: $('#tripEnd').value,
-      currency: $('#tripCurrency').value
+      currency: $('#tripCurrency').value,
+      place: (placeName || tripSelLoc) ? {
+        name: placeName || (tripSelLoc && tripSelLoc.name) || '',
+        lat: tripSelLoc && tripSelLoc.lat != null ? tripSelLoc.lat : null,
+        lng: tripSelLoc && tripSelLoc.lng != null ? tripSelLoc.lng : null
+      } : null
     };
     if (id) {
       const t = state.trips.find(x => x.id === id);

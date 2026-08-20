@@ -55,6 +55,13 @@
       <!-- Painel -->
       <section class="tab-panel active" id="tab-painel">
         <div class="countdown" id="countdown" hidden></div>
+        <div class="card weather-card" id="weatherCard" hidden>
+          <div class="card-head">
+            <h3>Meteorologia</h3>
+            <span class="muted small" id="weatherPlace"></span>
+          </div>
+          <div class="weather-strip" id="weatherStrip"></div>
+        </div>
         <div class="total-hero card">
           <span class="total-lbl">Total gasto</span>
           <span class="total-val" id="totalSpent">—</span>
@@ -299,6 +306,14 @@
             <input type="date" id="tripEnd" />
           </label>
         </div>
+        <label class="fld">
+          <span>Destino (para a meteorologia)</span>
+          <div class="loc-input">
+            <input type="text" id="tripPlace" placeholder="Escolhe no mapa ou escreve" />
+            <button type="button" class="loc-btn" id="tripMapBtn" title="Escolher no mapa">🗺️</button>
+          </div>
+        </label>
+
         <div class="fld-row">
           <label class="fld">
             <span>Moeda</span>

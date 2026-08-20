@@ -117,6 +117,18 @@ body { overscroll-behavior-y: none; }
 .warn { color: var(--warn); }
 .over { color: var(--danger); }
 
+/* Meteorologia */
+.weather-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+.wx-day {
+  flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 2px;
+  background: var(--surface-2); border-radius: 12px; padding: 8px 12px; min-width: 60px;
+}
+.wx-d { font-size: 0.72rem; color: var(--muted); font-weight: 700; white-space: nowrap; }
+.wx-emo { font-size: 1.4rem; line-height: 1.1; }
+.wx-t { font-size: 0.85rem; font-weight: 800; }
+.wx-min { color: var(--muted); font-weight: 600; margin-left: 3px; }
+.day-wx { font-weight: 700; color: var(--text); }
+
 /* Contagem decrescente para a viagem */
 .countdown {
   border-radius: 14px; padding: 13px 16px; margin-bottom: 14px;
