@@ -723,11 +723,15 @@
       ? `${exps.length} despesa${exps.length > 1 ? 's' : ''} registada${exps.length > 1 ? 's' : ''}`
       : 'Sem despesas ainda';
 
+    // Despesas do dia-a-dia (exclui as fixas, para não distorcer os dias)
+    const dailyExps = exps.filter(e => !e.fixed);
+    const dailyTotal = dailyExps.reduce((s, e) => s + Number(e.amount), 0);
+
     // Estatísticas
     $('#statCount').textContent = exps.length;
-    const nDays = daysBetween(trip.start, trip.end) || uniqueDays(exps) || 1;
+    const nDays = daysBetween(trip.start, trip.end) || uniqueDays(dailyExps) || 1;
     $('#statDays').textContent = daysBetween(trip.start, trip.end) || uniqueDays(exps) || 0;
-    $('#statDaily').textContent = fmtShort(total / nDays);
+    $('#statDaily').textContent = fmtShort(dailyTotal / nDays);
 
     // Categoria maior
     const byCat = groupByCategory(exps);
@@ -735,7 +739,7 @@
     $('#statTopCat').textContent = top ? catById(top[0]).emoji + ' ' + catById(top[0]).name : '—';
 
     drawDonut(byCat, total);
-    drawBars(exps);
+    drawBars(dailyExps);
     renderSettlement(trip, exps);
   }
 
@@ -916,6 +920,7 @@
   //  DESPESAS (lista)
   // ==================================================================
   const collapsedDays = new Set();   // dias recolhidos (por data)
+  let expView = 'dia';               // 'dia' ou 'fixas'
 
   function renderExpenses() {
     populateCatFilter();
@@ -923,6 +928,9 @@
     const catFilter = $('#filterCat').value;
     let exps = tripExpenses().slice().sort((a, b) =>
       (b.date.localeCompare(a.date)) || (b.createdAt - a.createdAt));
+
+    // separar por vista: fixas vs por dia
+    exps = exps.filter(e => expView === 'fixas' ? e.fixed : !e.fixed);
 
     if (term) exps = exps.filter(e =>
       (e.description || '').toLowerCase().includes(term) ||
@@ -932,8 +940,28 @@
     const list = $('#expenseList');
     const empty = $('#expenseEmpty');
     list.innerHTML = '';
-    if (exps.length === 0) { empty.hidden = false; return; }
+    if (exps.length === 0) {
+      empty.hidden = false;
+      empty.querySelector('p').textContent = expView === 'fixas'
+        ? 'Ainda não há despesas fixas.' : 'Ainda não há despesas.';
+      return;
+    }
     empty.hidden = true;
+
+    // Vista "Fixas": lista simples com total, sem agrupar por dia
+    if (expView === 'fixas') {
+      const totalFix = exps.reduce((s, e) => s + Number(e.amount), 0);
+      const head = document.createElement('div');
+      head.className = 'day-head';
+      head.innerHTML = `<span class="day-title">Despesas fixas</span>
+        <span class="day-sum"><strong>${fmt(totalFix)}</strong></span>`;
+      list.appendChild(head);
+      const group = document.createElement('div');
+      group.className = 'day-group';
+      exps.forEach(e => group.appendChild(renderExpenseItem(e, false, true)));
+      list.appendChild(group);
+      return;
+    }
 
     // Arrastar para reordenar só faz sentido na vista completa (sem filtros)
     const canSort = !term && !catFilter;
@@ -995,7 +1023,7 @@
     toast('Ordem guardada ✅');
   }
 
-  function renderExpenseItem(e, canSort) {
+  function renderExpenseItem(e, canSort, showDate) {
     const c = catById(e.category);
     const item = document.createElement('div');
     item.className = 'exp-item';
@@ -1004,12 +1032,13 @@
       ? `<a class="exp-loc" href="${mapUrl(e.location)}" target="_blank" rel="noopener">📍 ${escapeHtml(e.location.name || 'Ver no mapa')}</a>`
       : '';
     const handle = canSort ? `<div class="drag-handle" title="Arrastar">⠿</div>` : '';
+    const metaDate = showDate ? prettyDate(e.date) + ' · ' : '';
     item.innerHTML = `
       ${handle}
       <div class="exp-emoji" style="background:${c.color}22">${c.emoji}</div>
       <div class="exp-body">
         <div class="exp-desc">${escapeHtml(e.description || c.name)}</div>
-        <div class="exp-meta">${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
+        <div class="exp-meta">${metaDate}${c.name}${e.paidBy ? ' · ' + escapeHtml(e.paidBy) : ''}</div>
         ${locHtml}
       </div>
       <div class="exp-amt">${fmt(e.amount)}</div>`;
@@ -1044,6 +1073,13 @@
   }
   $('#searchInput').addEventListener('input', renderExpenses);
   $('#filterCat').addEventListener('change', renderExpenses);
+  $$('#expSeg .seg-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      expView = btn.dataset.view;
+      $$('#expSeg .seg-btn').forEach(b => b.classList.toggle('active', b === btn));
+      renderExpenses();
+    });
+  });
 
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, m =>
@@ -1208,6 +1244,7 @@
     selectedLoc = loc ? { ...loc } : null;
     $('#expenseLoc').value = loc ? (loc.name || '') : '';
     updateLocLink();
+    $('#expenseFixed').checked = isEdit ? !!exp.fixed : (expView === 'fixas' || !!pre.fixed);
 
     // pessoas / divisão
     const people = trip.people || [];
@@ -1263,7 +1300,8 @@
       date: $('#expenseDate').value || todayStr(),
       paidBy: (trip.people || []).length ? $('#expensePaidBy').value : '',
       splitAmong: (trip.people || []).length ? selectedSplit.slice() : [],
-      location: buildLocation()
+      location: buildLocation(),
+      fixed: $('#expenseFixed').checked
     };
     if (id) {
       const e = state.expenses.find(x => x.id === id);

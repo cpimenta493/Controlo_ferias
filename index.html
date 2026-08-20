@@ -116,6 +116,10 @@
 
       <!-- Despesas -->
       <section class="tab-panel" id="tab-despesas">
+        <div class="seg" id="expSeg">
+          <button type="button" class="seg-btn active" data-view="dia">📅 Por dia</button>
+          <button type="button" class="seg-btn" data-view="fixas">📌 Fixas</button>
+        </div>
         <div class="filter-bar">
           <input type="search" id="searchInput" placeholder="Procurar despesa…" />
           <select id="filterCat">
@@ -257,6 +261,11 @@
             <button type="button" class="loc-btn" id="mapPickBtn" title="Escolher no mapa">🗺️</button>
           </div>
           <a class="loc-link" id="locLink" target="_blank" rel="noopener" hidden>Ver no mapa ↗</a>
+        </label>
+
+        <label class="switch-row">
+          <span>Despesa fixa <small class="muted">(alojamento, viagem…)</small></span>
+          <input type="checkbox" id="expenseFixed" class="switch" />
         </label>
 
         <div class="fld-row">
