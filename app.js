@@ -839,10 +839,11 @@
     const max = Math.max(...days.map(d => byDay[d]));
     const pad = 28, bw = (w - pad) / days.length;
     const barW = Math.min(bw * 0.62, 40);
+    const topPad = 30; // espaço em cima para o valor
 
     days.forEach((d, i) => {
       const val = byDay[d];
-      const bh = max > 0 ? (val / max) * (h - 48) : 0;
+      const bh = max > 0 ? (val / max) * (h - 26 - topPad) : 0;
       const x = pad / 2 + i * bw + (bw - barW) / 2;
       const y = h - 26 - bh;
       const grad = ctx.createLinearGradient(0, y, 0, h - 26);
@@ -852,9 +853,15 @@
       roundRect(ctx, x, y, barW, bh, 6);
       ctx.fill();
 
+      // valor por cima da barra
+      ctx.fillStyle = getCss('--text');
+      ctx.font = '700 9.5px -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(fmtShort(val), x + barW / 2, y - 5);
+
+      // data por baixo
       ctx.fillStyle = getCss('--muted');
       ctx.font = '10px -apple-system, sans-serif';
-      ctx.textAlign = 'center';
       const label = new Date(d + 'T00:00:00').toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' });
       ctx.fillText(label, x + barW / 2, h - 10);
     });
