@@ -726,6 +726,17 @@
     // Despesas do dia-a-dia (exclui as fixas, para não distorcer os dias)
     const dailyExps = exps.filter(e => !e.fixed);
     const dailyTotal = dailyExps.reduce((s, e) => s + Number(e.amount), 0);
+    const fixedTotal = total - dailyTotal;
+
+    // Total dividido: dia-a-dia + fixas
+    const split = $('#totalSplit');
+    if (exps.length && fixedTotal > 0) {
+      split.hidden = false;
+      $('#splitDaily').textContent = fmt(dailyTotal);
+      $('#splitFixed').textContent = fmt(fixedTotal);
+    } else {
+      split.hidden = true;
+    }
 
     // Estatísticas
     $('#statCount').textContent = exps.length;
