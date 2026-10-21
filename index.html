@@ -24,9 +24,11 @@
       <div class="lock-icon">🔒</div>
       <h2>Férias</h2>
       <p class="muted" id="lockMsg">Introduz a palavra-passe</p>
-      <input type="password" id="lockInput" inputmode="text" autocomplete="off" placeholder="Palavra-passe" />
+      <input type="password" id="lockInput" inputmode="text" autocomplete="current-password" placeholder="Palavra-passe" />
       <button class="btn-primary" id="lockBtn">Entrar</button>
       <p class="lock-error" id="lockError" hidden>Palavra-passe errada 🙈</p>
+      <button class="btn-outline" id="lockLocalBtn" hidden>Continuar só neste dispositivo</button>
+      <button class="btn-outline" id="lockBackupBtn" hidden>Guardar cópia dos dados locais</button>
     </div>
   </div>
 
@@ -168,6 +170,7 @@
           <div class="card-head"><h3>Segurança</h3></div>
           <p class="muted small" id="passStatus">A app não pede palavra-passe.</p>
           <button class="btn-outline" id="openPassBtn">🔒 Palavra-passe de acesso</button>
+          <button class="btn-outline" id="cloudSignOutBtn" hidden>Terminar sessão neste dispositivo</button>
         </div>
 
         <div class="card">
@@ -175,6 +178,7 @@
           <div class="data-actions">
             <button class="btn-outline" id="exportCsvBtn">Exportar CSV</button>
             <button class="btn-outline" id="exportJsonBtn">Cópia de segurança</button>
+            <button class="btn-outline" id="exportRecoveryBtn">Exportar recuperação</button>
             <label class="btn-outline file-label">
               Importar
               <input type="file" id="importInput" accept="application/json" hidden />
@@ -356,6 +360,9 @@
         <button class="icon-btn" data-close aria-label="Fechar">✕</button>
       </div>
       <form id="passForm">
+        <label class="fld" id="passCurrentField" hidden><span>Palavra-passe atual</span>
+          <input type="password" id="passCurrent" autocomplete="current-password" />
+        </label>
         <p class="muted small" id="passHint">Define uma palavra-passe para entrar na app. Vai ser pedida a cada dispositivo na primeira vez.</p>
         <label class="fld">
           <span>Nova palavra-passe</span>
@@ -466,7 +473,11 @@
        configuração, a app funciona à mesma só neste dispositivo. -->
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
   <script src="firebase-config.js"></script>
+  <script src="shared-access.js"></script>
+  <script src="data-store.js"></script>
+  <script src="cloud-session.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

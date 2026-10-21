@@ -1,12 +1,15 @@
 /* Service Worker — funcionamento offline
    Estratégia: REDE PRIMEIRO (quando há internet, mostra sempre a versão
    mais recente); a cache serve apenas de reserva quando estás offline. */
-const CACHE = 'ferias-gastos-v20';
+const CACHE = 'ferias-gastos-v22';
 const ASSETS = [
   './',
   './index.html',
   './styles.css',
   './app.js',
+  './data-store.js',
+  './cloud-session.js',
+  './shared-access.js',
   './firebase-config.js',
   './manifest.json',
   './icon.svg',

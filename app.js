@@ -35,34 +35,18 @@
   const planType = (id) => PLAN_TYPES.find(t => t.id === id) || PLAN_TYPES[PLAN_TYPES.length - 1];
 
   // ---------- Estado ----------
-  let state = load();
-
-  function load() {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const s = JSON.parse(raw);
-        if (!s.plans) s.plans = [];   // compatibilidade com dados antigos
-        return s;
-      }
-    } catch (e) { /* ignora */ }
-    // Estado inicial
+  const dataStore = new FeriasData.Store(localStorage, STORAGE_KEY, () => {
     const tripId = uid();
     return {
-      trips: [{
-        id: tripId, name: 'As minhas férias',
-        currency: 'EUR', start: '', end: '', people: []
-      }],
-      expenses: [],
-      plans: [],
-      activeTrip: tripId,
-      theme: 'light'
+      trips: [{ id: tripId, name: 'As minhas férias', currency: 'EUR', start: '', end: '', people: [] }],
+      expenses: [], plans: [], activeTrip: tripId, theme: 'light'
     };
-  }
+  });
+  let state = dataStore.state;
 
   function save() {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
-    catch (e) { toast('Não foi possível guardar 😕'); }
+    try { dataStore.save(state); }
+    catch (e) { toast('Não foi possível guardar. Mantém esta página aberta e exporta uma cópia de segurança.'); }
   }
 
   function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
@@ -72,126 +56,75 @@
   //  Se não estiver configurado ou estiver offline, a app continua
   //  a funcionar apenas com os dados locais (localStorage).
   // ================================================================
-  const cloud = { on: false, db: null, seeded: false };
+  const cloud = { on: false, db: null, session: null, listeners: [], localOnly: false, status: 'locked' };
 
-  function cloudConfigured() {
+  function cloudRequested() {
     const c = window.FERIAS_FIREBASE;
-    return !!(c && typeof firebase !== 'undefined' && c.apiKey &&
-              !String(c.apiKey).startsWith('COLA_'));
+    return !!(c && c.apiKey && !String(c.apiKey).startsWith('COLA_'));
   }
 
   function setSyncBadge(mode) {
     const b = $('#syncBadge');
     if (!b) return;
     b.hidden = false;
-    if (mode === 'sync') { b.textContent = '☁ sincronizado'; b.className = 'sync-badge on'; }
-    else { b.textContent = '⌂ só neste dispositivo'; b.className = 'sync-badge'; }
+    b.textContent = mode === 'sync' ? '☁ sincronizado'
+      : mode === 'pending' ? '☁ alterações por sincronizar' : '⌂ só neste dispositivo';
+    b.className = mode === 'sync' ? 'sync-badge on' : 'sync-badge';
   }
 
   function initCloud() {
-    if (!cloudConfigured()) { setSyncBadge('local'); return; }
+    if (!cloudRequested()) { setSyncBadge('local'); return; }
+    if (typeof firebase === 'undefined' || typeof firebase.auth !== 'function') {
+      cloud.status = 'offline'; refreshLock(); setSyncBadge('local'); return;
+    }
     try {
       firebase.initializeApp(window.FERIAS_FIREBASE);
-      cloud.db = firebase.firestore();
-      cloud.on = true;
-      cloud.db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
-      setSyncBadge('sync');
-      subscribeCloud();
+      const db = firebase.firestore();
+      const access = window.FERIAS_SHARED_AUTH || {};
+      dataStore.onStatus = mode => setSyncBadge(cloud.on ? mode : 'local');
+      dataStore.onChange = updated => { state = updated; refreshAll(); };
+      cloud.session = new FeriasCloud.Session({
+        auth: firebase.auth(), db, store: dataStore,
+        email: access.email, uid: access.uid,
+        persistence: firebase.auth.Auth.Persistence.LOCAL,
+        onStatus: mode => {
+          cloud.status = mode;
+          setSyncBadge(mode === 'connecting' ? 'pending' : 'local');
+          refreshLock(); updatePassStatus();
+        },
+        onDisconnect: () => {
+          cloud.on = false; cloud.db = null;
+          cloud.listeners.forEach(unsubscribe => unsubscribe());
+          cloud.listeners = [];
+        },
+        onReady: snapshots => {
+          cloud.db = db; cloud.on = true; cloud.localOnly = false;
+          ['trips', 'expenses', 'plans'].forEach((name, index) => dataStore.accept(name, snapshots[index]));
+          subscribeCloud(); refreshLock(); updatePassStatus();
+        }
+      });
+      void cloud.session.start();
+      window.addEventListener('online', () => { void cloud.session.connect(); });
     } catch (e) {
       console.warn('Firebase indisponível:', e);
-      cloud.on = false;
-      setSyncBadge('local');
+      cloud.on = false; dataStore.db = null; cloud.status = 'error';
+      setSyncBadge('local'); refreshLock();
     }
   }
 
   function subscribeCloud() {
-    cloud.db.collection('trips').onSnapshot(snap => {
-      const trips = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      if (trips.length === 0 && !cloud.seeded) {
-        cloud.seeded = true;
-        seedCloudFromLocal();   // primeira utilização: envia o que já existe localmente
-        return;
-      }
-      cloud.seeded = true;
-      if (trips.length) state.trips = trips;
-      if (!state.trips.find(t => t.id === state.activeTrip)) {
-        state.activeTrip = state.trips[0] ? state.trips[0].id : null;
-      }
-      save();
-      refreshAll();
-    }, err => console.warn('trips onSnapshot:', err));
-
-    cloud.db.collection('expenses').onSnapshot(snap => {
-      state.expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      save();
-      refreshAll();
-    }, err => console.warn('expenses onSnapshot:', err));
-
-    cloud.db.collection('plans').onSnapshot(snap => {
-      state.plans = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      save();
-      refreshAll();
-    }, err => console.warn('plans onSnapshot:', err));
-
-    cloud.db.collection('config').doc('app').onSnapshot(d => {
-      const h = d.exists ? (d.data().passHash || '') : '';
-      setPassHashLocal(h);   // sincroniza a palavra-passe entre dispositivos
-    }, err => console.warn('config onSnapshot:', err));
-  }
-
-  function pushPassHash(hash) {
-    if (cloud.on) cloud.db.collection('config').doc('app').set({ passHash: hash || '' }).catch(() => {});
-  }
-
-  function seedCloudFromLocal() {
-    const batch = cloud.db.batch();
-    (state.trips || []).forEach(t => {
-      const { id, ...data } = t;
-      batch.set(cloud.db.collection('trips').doc(id), data);
-    });
-    (state.expenses || []).forEach(e => {
-      const { id, ...data } = e;
-      batch.set(cloud.db.collection('expenses').doc(id), data);
-    });
-    (state.plans || []).forEach(p => {
-      const { id, ...data } = p;
-      batch.set(cloud.db.collection('plans').doc(id), data);
-    });
-    batch.commit().catch(err => console.warn('seed inicial:', err));
-  }
-
-  // Escritas na nuvem (sem efeito quando a sincronização está desligada)
-  function pushTrip(trip) {
-    if (!cloud.on) return;
-    const { id, ...data } = trip;
-    cloud.db.collection('trips').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
-  }
-  function pushExpense(exp) {
-    if (!cloud.on) return;
-    const { id, ...data } = exp;
-    cloud.db.collection('expenses').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
-  }
-  function delTripCloud(id) {
-    if (!cloud.on) return;
-    cloud.db.collection('trips').doc(id).delete().catch(() => {});
-    state.expenses.filter(e => e.tripId === id).forEach(e =>
-      cloud.db.collection('expenses').doc(e.id).delete().catch(() => {}));
-    (state.plans || []).filter(p => p.tripId === id).forEach(p =>
-      cloud.db.collection('plans').doc(p.id).delete().catch(() => {}));
-  }
-  function delExpenseCloud(id) {
-    if (cloud.on) cloud.db.collection('expenses').doc(id).delete().catch(() => {});
-  }
-  function pushPlan(plan) {
-    if (!cloud.on) return;
-    const { id, ...data } = plan;
-    cloud.db.collection('plans').doc(id).set(data).catch(() => toast('Falha ao sincronizar 😕'));
-  }
-  function delPlanCloud(id) {
-    if (cloud.on) cloud.db.collection('plans').doc(id).delete().catch(() => {});
-  }
-  function pushAllCloud() {
-    if (cloud.on) seedCloudFromLocal();
+    cloud.listeners.forEach(unsubscribe => unsubscribe());
+    cloud.listeners = ['trips', 'expenses', 'plans'].map(name =>
+      cloud.db.collection(name).onSnapshot({ includeMetadataChanges: true }, snap => {
+        try { dataStore.accept(name, snap); }
+        catch (error) { setSyncBadge('pending'); toast('Atualização suspensa: não foi possível proteger os dados locais. Exporta uma cópia.'); }
+      }, error => {
+        cloud.session.disconnect();
+        cloud.status = error.code === 'permission-denied' ? 'denied' : 'offline';
+        setSyncBadge('local'); refreshLock(); updatePassStatus();
+        toast('A sincronização foi suspensa. As alterações locais foram mantidas.');
+      })
+    );
   }
 
   const activeTrip = () => state.trips.find(t => t.id === state.activeTrip) || state.trips[0];
@@ -457,7 +390,7 @@
       ${costHtml}`;
     item.querySelector('.plan-check').addEventListener('click', (ev) => {
       ev.stopPropagation();
-      p.done = !p.done; pushPlan(p); save(); renderItinerary();
+      p.done = !p.done; save(); renderItinerary();
     });
     item.querySelector('.drag-handle').addEventListener('click', (ev) => ev.stopPropagation());
     const locEl = item.querySelector('.exp-loc');
@@ -472,7 +405,7 @@
     const ids = Array.from(group.children).map(el => el.dataset.id);
     ids.forEach((id, i) => {
       const p = (state.plans || []).find(x => x.id === id);
-      if (p) { p.order = i; pushPlan(p); }
+      if (p) { p.order = i; }
     });
     save();
     toast('Ordem guardada ✅');
@@ -543,11 +476,11 @@
     };
     if (id) {
       const p = state.plans.find(x => x.id === id);
-      Object.assign(p, data); pushPlan(p);
+      Object.assign(p, data);
       toast('Atividade atualizada ✅');
     } else {
       const p = { id: uid(), createdAt: Date.now(), done: false, ...data };
-      state.plans.push(p); pushPlan(p);
+      state.plans.push(p);
       toast('Adicionado ao roteiro 🗺️');
     }
     save(); closeModal('#planModal'); refreshAll();
@@ -557,7 +490,6 @@
     const id = $('#planId').value;
     if (!id) return;
     if (!confirm('Eliminar esta atividade?')) return;
-    delPlanCloud(id);
     state.plans = state.plans.filter(p => p.id !== id);
     save(); closeModal('#planModal'); refreshAll();
     toast('Atividade eliminada');
@@ -1035,7 +967,7 @@
     const ids = Array.from(group.children).map(el => el.dataset.id);
     ids.forEach((id, i) => {
       const e = state.expenses.find(x => x.id === id);
-      if (e) { e.order = i; pushExpense(e); }
+      if (e) { e.order = i; }
     });
     save();
     toast('Ordem guardada ✅');
@@ -1324,12 +1256,10 @@
     if (id) {
       const e = state.expenses.find(x => x.id === id);
       Object.assign(e, data);
-      pushExpense(e);
       toast('Despesa atualizada ✅');
     } else {
       const exp = { id: uid(), tripId: trip.id, createdAt: Date.now(), ...data };
       state.expenses.push(exp);
-      pushExpense(exp);
       toast('Despesa adicionada 🎉');
     }
     save();
@@ -1341,7 +1271,6 @@
     const id = $('#expenseId').value;
     if (!id) return;
     if (!confirm('Eliminar esta despesa?')) return;
-    delExpenseCloud(id);
     state.expenses = state.expenses.filter(e => e.id !== id);
     save();
     closeModal('#expenseModal');
@@ -1428,7 +1357,6 @@
       chip.innerHTML = `${escapeHtml(p)} <button data-p="${escapeAttr(p)}" aria-label="Remover">✕</button>`;
       chip.querySelector('button').addEventListener('click', () => {
         trip.people = trip.people.filter(x => x !== p);
-        pushTrip(trip);
         save(); renderPeople();
       });
       list.appendChild(chip);
@@ -1445,7 +1373,6 @@
     trip.people = trip.people || [];
     if (trip.people.includes(name)) { toast('Essa pessoa já existe'); return; }
     trip.people.push(name);
-    pushTrip(trip);
     inp.value = '';
     save(); renderPeople();
   }
@@ -1485,13 +1412,11 @@
     if (id) {
       const t = state.trips.find(x => x.id === id);
       Object.assign(t, data);
-      pushTrip(t);
       toast('Viagem atualizada ✅');
     } else {
       const t = { id: uid(), people: [], ...data };
       state.trips.push(t);
       state.activeTrip = t.id;
-      pushTrip(t);
       toast('Viagem criada 🧳');
     }
     save();
@@ -1504,7 +1429,6 @@
     const id = $('#tripId').value;
     if (!id || state.trips.length <= 1) return;
     if (!confirm('Eliminar esta viagem e todas as suas despesas?')) return;
-    delTripCloud(id);
     state.trips = state.trips.filter(t => t.id !== id);
     state.expenses = state.expenses.filter(e => e.tripId !== id);
     state.plans = (state.plans || []).filter(p => p.tripId !== id);
@@ -1545,21 +1469,36 @@
     const file = ev.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
-        const data = JSON.parse(reader.result);
-        if (!data.trips || !data.expenses) throw new Error('formato');
-        if (!confirm('Isto substitui os dados atuais. Continuar?')) return;
-        state = data;
-        if (!state.theme) state.theme = 'light';
-        save(); applyTheme(); refreshAll();
-        pushAllCloud();
-        toast('Dados importados ✅');
-      } catch (e) { toast('Ficheiro inválido 😕'); }
+        const data = FeriasData.normalize(JSON.parse(reader.result));
+        if (cloudRequested() && !cloud.on) throw Error('Liga a sincronização antes de restaurar. Os dados atuais foram mantidos.');
+        if (!confirm('Restaurar esta cópia em todos os dispositivos? Os dados atuais serão guardados para recuperação antes da substituição.')) return;
+        await dataStore.restore(data);
+        state = dataStore.state;
+        applyTheme(); refreshAll();
+        if (cloud.on) { subscribeCloud(); setSyncBadge('sync'); }
+        toast('Dados importados; cópias de recuperação preservadas ✅');
+      } catch (e) { toast(e.message || 'Não foi possível importar. Os dados atuais foram mantidos.'); }
     };
     reader.readAsText(file);
     ev.target.value = '';
   });
+
+  $('#exportRecoveryBtn').addEventListener('click', async () => {
+    try {
+      const copies = await dataStore.recoveries();
+      download(JSON.stringify(copies, null, 2), 'ferias_recuperacao.json', 'application/json');
+      toast(copies.remoteUnavailable ? 'Cópias locais exportadas. Falta obter as cópias da nuvem; tenta novamente com ligação.' : 'Cópias de recuperação exportadas');
+    } catch (error) { toast('Não foi possível obter todas as cópias. Verifica a ligação e tenta novamente.'); }
+  });
+
+  // Prevent edits while a restore is reading and atomically replacing cloud data.
+  ['click', 'submit', 'change', 'pointerdown', 'keydown'].forEach(event => document.addEventListener(event, ev => {
+    if (!dataStore.restoring) return;
+    ev.preventDefault(); ev.stopImmediatePropagation();
+    toast('Aguarda a conclusão do restauro.');
+  }, true));
 
   function download(content, filename, type) {
     const blob = new Blob([content], { type });
@@ -1624,6 +1563,22 @@
     updatePassStatus();
   }
   function refreshLock() {
+    if (cloudRequested()) {
+      const authorized = !!cloud.session?.authorized;
+      $('#lockScreen').hidden = authorized || cloud.localOnly;
+      const messages = {
+        setup: 'Falta concluir a configuração do acesso partilhado.',
+        denied: 'Esta sessão não tem acesso às viagens partilhadas.',
+        offline: 'Sem ligação à sincronização. Os dados deste dispositivo foram mantidos.',
+        error: 'Não foi possível iniciar a sincronização. Os dados locais foram mantidos.',
+        connecting: 'A verificar a ligação e a proteger os dados…'
+      };
+      $('#lockMsg').textContent = messages[cloud.status] || 'Introduz a palavra-passe partilhada.';
+      $('#lockLocalBtn').hidden = false;
+      $('#lockBackupBtn').hidden = false;
+      document.body.style.overflow = authorized || cloud.localOnly ? '' : 'hidden';
+      return;
+    }
     if (currentHash() && !isUnlocked()) {
       $('#lockScreen').hidden = false;
       document.body.style.overflow = 'hidden';
@@ -1634,26 +1589,70 @@
     }
   }
   async function tryUnlock() {
+    if (cloudRequested()) {
+      const password = $('#lockInput').value;
+      $('#lockError').hidden = true;
+      $('#lockBtn').disabled = true;
+      try {
+        if (!cloud.session) throw Error('Sem ligação ao serviço de acesso. Podes continuar apenas neste dispositivo.');
+        await cloud.session.signIn(password);
+        $('#lockInput').value = '';
+      } catch (error) {
+        $('#lockError').textContent = 'Não foi possível entrar. Confirma a palavra-passe e a ligação.';
+        $('#lockError').hidden = false;
+      } finally { $('#lockBtn').disabled = false; }
+      return;
+    }
     const h = await sha256($('#lockInput').value);
     if (h && h === currentHash()) {
       localStorage.setItem(LS_UNLOCKED, '1');
       $('#lockInput').value = '';
       $('#lockError').hidden = true;
       refreshLock();
-    } else {
-      $('#lockError').hidden = false;
-    }
+    } else { $('#lockError').hidden = false; }
   }
+  $('#lockLocalBtn').addEventListener('click', () => {
+    cloud.localOnly = true; refreshLock(); setSyncBadge('local');
+  });
+  $('#lockBackupBtn').addEventListener('click', () => {
+    download(JSON.stringify(state, null, 2), 'ferias_backup.json', 'application/json');
+  });
+  $('#cloudSignOutBtn').addEventListener('click', async () => {
+    cloud.localOnly = false;
+    try { await cloud.session?.signOut(); }
+    catch (error) { toast('Não foi possível terminar a sessão.'); }
+    refreshLock(); updatePassStatus();
+  });
   $('#lockBtn').addEventListener('click', tryUnlock);
   $('#lockInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); tryUnlock(); } });
 
   function updatePassStatus() {
     const el = $('#passStatus');
+    if (cloudRequested()) {
+      if (el) el.textContent = cloud.session?.authorized
+        ? 'Acesso partilhado ativo. Ambos podem editar as viagens.'
+        : 'Entra com a palavra-passe partilhada para sincronizar.';
+      $('#cloudSignOutBtn').hidden = !cloud.session?.authorized;
+      $('#openPassBtn').textContent = cloud.session?.authorized ? 'Alterar palavra-passe partilhada' : 'Entrar na sincronização';
+      return;
+    }
     if (el) el.textContent = currentHash()
       ? 'A app pede palavra-passe na primeira vez em cada dispositivo. 🔒'
       : 'A app não pede palavra-passe.';
   }
   function openPassModal() {
+    if (cloudRequested() && !cloud.session?.authorized) {
+      cloud.localOnly = false; refreshLock(); return;
+    }
+    if (cloudRequested()) {
+      $('#passModalTitle').textContent = 'Alterar palavra-passe partilhada';
+      $('#passHint').textContent = 'A nova palavra-passe passa a ser usada nos dois dispositivos.';
+      $('#passCurrentField').hidden = false;
+      $('#passCurrent').value = '';
+      $('#passRemoveBtn').hidden = true;
+      $('#passNew').value = ''; $('#passConfirm').value = '';
+      showModal('#passModal'); return;
+    }
     const has = !!currentHash();
     $('#passModalTitle').textContent = has ? 'Alterar palavra-passe' : 'Definir palavra-passe';
     $('#passHint').textContent = has
@@ -1670,21 +1669,31 @@
   $('#passForm').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     const n = $('#passNew').value, c = $('#passConfirm').value;
-    if (n.length < 3) { toast('Mínimo 3 caracteres'); return; }
+    if (n.length < (cloudRequested() ? 12 : 3)) { toast(cloudRequested() ? 'Usa pelo menos 12 caracteres.' : 'Mínimo 3 caracteres'); return; }
     if (n !== c) { toast('As palavras-passe não coincidem'); return; }
+    if (cloudRequested()) {
+      try {
+        const user = firebase.auth().currentUser;
+        const credential = firebase.auth.EmailAuthProvider.credential(window.FERIAS_SHARED_AUTH.email, $('#passCurrent').value);
+        await user.reauthenticateWithCredential(credential);
+        await user.updatePassword(n);
+        $('#passCurrent').value = ''; $('#passNew').value = ''; $('#passConfirm').value = '';
+        closeModal('#passModal'); toast('Palavra-passe partilhada alterada.');
+      } catch (error) { toast('Não foi possível alterar. Confirma a palavra-passe atual e a ligação.'); }
+      return;
+    }
     const h = await sha256(n);
     localStorage.setItem(LS_HASH, h);
     localStorage.setItem(LS_UNLOCKED, '1');   // este dispositivo fica desbloqueado
-    pushPassHash(h);
     updatePassStatus();
     closeModal('#passModal');
     toast('Palavra-passe definida 🔒');
   });
 
   $('#passRemoveBtn').addEventListener('click', () => {
+    if (cloudRequested()) return;
     if (!confirm('Remover a palavra-passe? A app deixa de a pedir.')) return;
     setPassHashLocal('');
-    pushPassHash('');
     closeModal('#passModal');
     toast('Palavra-passe removida');
   });
