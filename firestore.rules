@@ -1,0 +1,116 @@
+rules_version = '2';
+// Shared travel data: trips (name/currency/people + optional dates/budget/place),
+// expenses (tripId/amount/category/date + optional presentation fields),
+// plans (tripId/title/type/date + optional time/cost/notes/location),
+// recoveries (append-only snapshots or restore manifests). No public access.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function sharedAccount() {
+      return request.auth != null
+        && request.auth.uid == 'ferias_partilhadas_8dfec863b3874525a61951dc125e4def'
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+    function text(value, max) { return value is string && value.size() <= max; }
+    function optionalText(data, key, max) { return !(key in data) || text(data[key], max); }
+    function optionalNumber(data, key) { return !(key in data) || (data[key] is number && data[key] >= 0); }
+    function optionalBool(data, key) { return !(key in data) || data[key] is bool; }
+    function names(value) {
+      return value is list && value.size() <= 20
+        && (value.size() <= 0 || (value[0] is string && value[0].size() <= 500))
+        && (value.size() <= 1 || (value[1] is string && value[1].size() <= 500))
+        && (value.size() <= 2 || (value[2] is string && value[2].size() <= 500))
+        && (value.size() <= 3 || (value[3] is string && value[3].size() <= 500))
+        && (value.size() <= 4 || (value[4] is string && value[4].size() <= 500))
+        && (value.size() <= 5 || (value[5] is string && value[5].size() <= 500))
+        && (value.size() <= 6 || (value[6] is string && value[6].size() <= 500))
+        && (value.size() <= 7 || (value[7] is string && value[7].size() <= 500))
+        && (value.size() <= 8 || (value[8] is string && value[8].size() <= 500))
+        && (value.size() <= 9 || (value[9] is string && value[9].size() <= 500))
+        && (value.size() <= 10 || (value[10] is string && value[10].size() <= 500))
+        && (value.size() <= 11 || (value[11] is string && value[11].size() <= 500))
+        && (value.size() <= 12 || (value[12] is string && value[12].size() <= 500))
+        && (value.size() <= 13 || (value[13] is string && value[13].size() <= 500))
+        && (value.size() <= 14 || (value[14] is string && value[14].size() <= 500))
+        && (value.size() <= 15 || (value[15] is string && value[15].size() <= 500))
+        && (value.size() <= 16 || (value[16] is string && value[16].size() <= 500))
+        && (value.size() <= 17 || (value[17] is string && value[17].size() <= 500))
+        && (value.size() <= 18 || (value[18] is string && value[18].size() <= 500))
+        && (value.size() <= 19 || (value[19] is string && value[19].size() <= 500));
+    }
+    function location(value) {
+      return value == null || (value is map
+        && value.keys().hasOnly(['name', 'lat', 'lng'])
+        && value.keys().hasAll(['name', 'lat', 'lng'])
+        && text(value.name, 5000)
+        && (value.lat == null || (value.lat is number && value.lat >= -90 && value.lat <= 90))
+        && (value.lng == null || (value.lng is number && value.lng >= -180 && value.lng <= 180)));
+    }
+    function validTrip(data) {
+      return data.keys().hasAll(['name', 'currency', 'people'])
+        && data.keys().hasOnly(['name', 'currency', 'people', 'start', 'end', 'budget', 'place'])
+        && text(data.name, 500) && data.name.size() > 0
+        && data.currency in ['EUR', 'USD', 'GBP', 'BRL', 'CHF', 'JPY']
+        && names(data.people)
+        && optionalText(data, 'start', 10) && optionalText(data, 'end', 10)
+        && optionalNumber(data, 'budget')
+        && (!('place' in data) || location(data.place));
+    }
+    function tripReference(data) {
+      return text(data.tripId, 1500) && data.tripId.size() > 0
+        && !data.tripId.matches('.*[/].*')
+        && getAfter(/databases/$(database)/documents/trips/$(data.tripId)).data.name is string;
+    }
+    function validExpense(data) {
+      return data.keys().hasAll(['tripId', 'amount', 'category', 'date'])
+        && data.keys().hasOnly(['tripId', 'amount', 'category', 'date', 'description', 'paidBy', 'splitAmong', 'location', 'fixed', 'createdAt', 'order'])
+        && tripReference(data)
+        && data.amount is number && data.amount >= 0
+        && text(data.category, 128) && text(data.date, 10)
+        && optionalText(data, 'description', 20000) && optionalText(data, 'paidBy', 500)
+        && (!('splitAmong' in data) || names(data.splitAmong))
+        && (!('location' in data) || location(data.location))
+        && optionalBool(data, 'fixed')
+        && optionalNumber(data, 'createdAt') && optionalNumber(data, 'order');
+    }
+    function validPlan(data) {
+      return data.keys().hasAll(['tripId', 'title', 'type', 'date'])
+        && data.keys().hasOnly(['tripId', 'title', 'type', 'date', 'time', 'cost', 'note', 'link', 'location', 'done', 'createdAt', 'order'])
+        && tripReference(data)
+        && text(data.title, 20000) && data.title.size() > 0
+        && text(data.type, 128) && text(data.date, 10)
+        && optionalText(data, 'time', 10) && optionalText(data, 'note', 100000) && optionalText(data, 'link', 10000)
+        && optionalNumber(data, 'cost') && optionalNumber(data, 'createdAt') && optionalNumber(data, 'order')
+        && optionalBool(data, 'done')
+        && (!('location' in data) || location(data.location));
+    }
+    function validRecovery(data) {
+      return data.keys().hasAll(['reason'])
+        && data.keys().hasOnly(['reason', 'runId', 'collection', 'recordId', 'createdAt', 'data'])
+        && optionalText(data, 'runId', 200) && optionalText(data, 'createdAt', 100)
+        && ((data.reason == 'restore-manifest' && 'runId' in data && 'createdAt' in data)
+          || (data.reason in ['before-write', 'before-restore']
+            && data.keys().hasAll(['collection', 'recordId', 'data'])
+            && data.collection in ['trips', 'expenses', 'plans']
+            && text(data.recordId, 1500) && data.data is map
+            && data.data.id == data.recordId));
+    }
+    match /trips/{id} {
+      allow read, delete: if sharedAccount();
+      allow create, update: if sharedAccount() && validTrip(request.resource.data);
+    }
+    match /expenses/{id} {
+      allow read, delete: if sharedAccount();
+      allow create, update: if sharedAccount() && validExpense(request.resource.data);
+    }
+    match /plans/{id} {
+      allow read, delete: if sharedAccount();
+      allow create, update: if sharedAccount() && validPlan(request.resource.data);
+    }
+    match /recoveries/{id} {
+      allow read: if sharedAccount();
+      allow create: if sharedAccount() && validRecovery(request.resource.data);
+      allow update, delete: if false;
+    }
+    match /{document=**} { allow read, write: if false; }
+  }
+}
